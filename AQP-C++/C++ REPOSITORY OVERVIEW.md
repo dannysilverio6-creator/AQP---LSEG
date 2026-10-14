@@ -1,4 +1,4 @@
-# Repository Overview — `quantpipe-cpp`
+# Repository Overview — AQP-C++
 
 **C++20 implementation of the Multi-Market Quantitative Investment Pipeline**
 
@@ -19,14 +19,12 @@
 ## 1. Repository Tree
 
 ```text
-quantpipe-cpp/
+AQP-C++/
 ├── CMakeLists.txt                 # top-level build
 ├── CMakePresets.json              # debug / release / sanitiser presets
 ├── vcpkg.json                     # pinned third-party dependencies
 ├── README.md
-├── docs/
-│   ├── quant_pipeline.md          # methodology (source of truth for the maths)
-│   └── repository_overview_cpp.md # this file
+├── C++ REPOSITORY OVERVIEW.md
 ├── configs/                       # every threshold lives here, none in code
 │   ├── base.yaml
 │   ├── sleeves/{asx,us}_{interday,intraday}.yaml
