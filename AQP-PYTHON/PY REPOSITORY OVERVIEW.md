@@ -17,13 +17,10 @@
 ## 1. Repository Tree
 
 ```text
-quantpipe/
+AQP-PYTHON/
 ├── pyproject.toml                 # dependencies, pinned with uv.lock
 ├── uv.lock
-├── README.md
-├── docs/
-│   ├── quant_pipeline.md          # methodology (source of truth for the maths)
-│   └── repository_overview.md     # this file
+├── repository_overview.md
 ├── configs/                       # every threshold lives here, none in code
 │   ├── base.yaml                  # paths, calendars, quantile grid, seeds
 │   ├── sleeves/
