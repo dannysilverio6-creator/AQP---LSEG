@@ -1,0 +1,214 @@
+%% ============================================================
+%% Multi-Market Quantitative Investment Pipeline
+%% Sleeves: ASX / US  x  Interday / Intraday   |   Live capital
+%% Render with any Mermaid viewer (mermaid.live, VS Code, GitHub)
+%% ============================================================
+flowchart TB
+
+%% ---------- STAGE 0 : DATA AND KNOWLEDGE LAYER ----------
+subgraph S0["STAGE 0 - Point-in-Time Data and Company Knowledge Layer"]
+    direction TB
+    D1["Market data<br/>Daily OHLCV, adjusted for splits and dividends<br/>Intraday bars, ticks, order book (L1/L2)<br/>Includes delisted names"]
+    D2["Fundamentals<br/>Filings and consensus estimates<br/>Stored with announcement timestamps<br/>Restatement-aware"]
+    D3["Macro series<br/>Real-time vintages (as first published)<br/>Release calendar: RBA, FOMC, CPI, GDP, jobs"]
+    D4["News and filings feed<br/>Wire, regulatory announcements, transcripts<br/>Strict publication timestamps"]
+    D5["Corporate actions and borrow data<br/>Short availability, borrow cost, margin rates"]
+    KL["COMPANY KNOWLEDGE LAYER (built once, versioned)<br/>1. Macro stickers: revenue and cost exposure by economy<br/>2. Market and industry labels<br/>3. Data-driven peer clusters (returns + text embeddings)<br/>4. Relationship graph: suppliers, customers, competitors<br/>5. Point-in-time membership and delisting history"]
+    D1 --> KL
+    D2 --> KL
+    D3 --> KL
+    D4 --> KL
+    D5 --> KL
+end
+
+%% ---------- STAGE 1 : ARCHETYPE ----------
+subgraph S1["STAGE 1 - Archetype Builder (selection only, no return forecasting)"]
+    direction TB
+    A0["Hard survival filter (all sleeves)<br/>Altman Z or Merton distance-to-default<br/>Interest coverage, net debt / EBITDA<br/>Refinancing wall, going-concern flags<br/>Exclude if below threshold"]
+    A1["Liquidity screen<br/>ADV, spread in bps, depth, free float<br/>Intraday: tighter spread and depth limits<br/>Interday: relaxed, capacity-aware"]
+    A2["Strategy archetypes<br/>Momentum / trend<br/>Quality-value<br/>Mean reversion / stat-arb pairs<br/>Event-driven<br/>Intraday liquid-large-cap"]
+    A3["Reconstitution rules<br/>Quarterly rebalance of universe<br/>Turnover band for stability<br/>Entry and exit hysteresis"]
+    A4["Output: universe per sleeve<br/>with archetype tag per name"]
+    A0 --> A1 --> A2 --> A3 --> A4
+end
+
+KL --> A0
+
+%% ---------- SLEEVES ----------
+subgraph SL["SLEEVE CONFIGURATION (independent config per sleeve)"]
+    direction LR
+    SL1["ASX Interday<br/>Calendar, AUD, ASX costs"]
+    SL2["US Interday<br/>Calendar, USD, FX risk"]
+    SL3["ASX Intraday<br/>Session auctions, tick size"]
+    SL4["US Intraday<br/>Overnight in Sydney, impact costs"]
+end
+
+A4 --> SL
+
+%% ---------- STAGE 2 : FORECAST MODELS ----------
+subgraph S2["STAGE 2 - Per-Company Forecast Models (common output: expected return, variance, uncertainty)"]
+    direction TB
+
+    subgraph F["2A Financial model"]
+        direction TB
+        F1["Return and earnings forecast<br/>Regularised regression (elastic net)<br/>Gradient boosting (LightGBM / XGBoost)<br/>Features: revisions, accruals, margins, leverage, quality<br/>Benchmark: naive and factor baselines"]
+        F2["Volatility forecast<br/>GARCH family (GJR, EGARCH)<br/>HAR-RV on realised volatility<br/>Intraday: realised variance from bars"]
+        F3["Distress model<br/>Merton structural model<br/>Discrete-time hazard model<br/>Feeds survival probability to Stage 1 and 3"]
+        F4["Optional state-space layer<br/>Kalman filter for time-varying factor loadings"]
+    end
+
+    subgraph M["2B Macro model"]
+        direction TB
+        M1["Read macro stickers from knowledge layer"]
+        M2["Regime model<br/>Markov-switching or hidden Markov model<br/>Growth, inflation, rates, risk-off regimes"]
+        M3["Stock-level macro sensitivities<br/>Time-varying betas to macro factors<br/>Shrunk toward sticker-implied exposure<br/>Hierarchical Bayes for short histories"]
+        M4["Event calendar module<br/>Surprise = actual minus consensus<br/>Intraday volatility and direction triggers"]
+        M5["FX channel<br/>AUD/USD as explicit risk factor"]
+        M1 --> M3
+        M2 --> M3
+        M4 --> M3
+        M5 --> M3
+    end
+
+    subgraph U["2C Micro model"]
+        direction TB
+        U1["Market and industry labels<br/>plus data-driven peer clusters"]
+        U2["Hierarchical or panel models<br/>Borrow strength across peers<br/>Pricing, input costs, demand, competition, margins"]
+        U3["Interday: valuation and sector structure<br/>Intraday: microstructure features<br/>Spread, order-book imbalance, volume profile, VWAP deviation"]
+        U1 --> U2 --> U3
+    end
+
+    subgraph N["2D News model (LLM as feature extractor)"]
+        direction TB
+        N1["Ingest and timestamp<br/>Dedupe, entity linking, source reliability"]
+        N2["LLM structured extraction<br/>Event type, entities, direction, magnitude<br/>Confidence, transmission channel"]
+        N3["Novelty and priced-in check<br/>Compare to price reaction since publication"]
+        N4["Relationship-graph propagation<br/>Spread event to suppliers, customers, peers<br/>Decay by distance and time"]
+        N5["Downstream return model<br/>Structured fields as features<br/>Trained on realised returns for calibration"]
+        N1 --> N2 --> N3 --> N4 --> N5
+    end
+end
+
+SL --> F
+SL --> M
+SL --> U
+SL --> N
+
+%% ---------- STAGE 2E : COMBINATION ----------
+subgraph S2E["STAGE 2E - Signal Combination"]
+    direction TB
+    C1["Stacking or Bayesian model averaging<br/>Weights learned out of sample<br/>Horizon-specific weights per sleeve"]
+    C2["Uncertainty calibration<br/>Conformal intervals or quantile calibration<br/>Check reliability diagrams"]
+    C3["Output per name<br/>Expected return mu<br/>Forecast variance<br/>Confidence and survival probability"]
+    C1 --> C2 --> C3
+end
+
+F --> C1
+M --> C1
+U --> C1
+N --> C1
+
+%% ---------- STAGE 3 : RISK MODEL ----------
+subgraph S3["STAGE 3 - Risk Model"]
+    direction TB
+    R1["Covariance estimation<br/>Ledoit-Wolf shrinkage<br/>Factor model plus idiosyncratic risk<br/>DCC-GARCH for time variation"]
+    R2["Tail risk<br/>Expected shortfall<br/>Gap and overnight risk for US positions"]
+    R3["Exposure map<br/>Sector, country, macro factor, FX, style factors"]
+    R1 --> R2 --> R3
+end
+
+C3 --> R1
+
+%% ---------- STAGE 4 : OPTIMISER ----------
+subgraph S4["STAGE 4 - Portfolio Optimiser (run per sleeve)"]
+    direction TB
+    O1["Return inputs<br/>Black-Litterman: forecasts as views over equilibrium prior"]
+    O2["Objective options<br/>Mean-variance with shrinkage<br/>Hierarchical risk parity<br/>CVaR minimisation"]
+    O3["Cost-aware objective<br/>Spread, commission, market impact<br/>Borrow cost, turnover penalty"]
+    O4["Constraints<br/>Position caps, sector and factor limits<br/>Liquidity participation limit<br/>Long-only or long-short rules"]
+    O5["Output: target weights per sleeve"]
+    O1 --> O2 --> O3 --> O4 --> O5
+end
+
+R3 --> O1
+C3 --> O1
+
+subgraph S4B["STAGE 4B - Sleeve Capital Allocator"]
+    direction TB
+    B1["Risk budgeting across sleeves<br/>Equal risk contribution or Bayesian allocation<br/>Correlation between sleeves included"]
+    B2["Intraday risk cap so it cannot<br/>consume interday risk capacity"]
+    B1 --> B2
+end
+
+O5 --> B1
+
+%% ---------- STAGE 5 : LEVERAGE REPORT ----------
+subgraph S5["STAGE 5 - Leverage and Position Report"]
+    direction TB
+    L1["Position sizing<br/>Fractional Kelly (e.g. 0.25 to 0.5 of full Kelly)<br/>Volatility targeting<br/>Separate sizing from leverage"]
+    L2["Leverage decision<br/>Gross and net exposure per sleeve<br/>Intraday vs overnight leverage<br/>Margin utilisation and financing cost"]
+    L3["Stress tests<br/>Historical crises, factor shocks<br/>Gap risk, FX shock, liquidity squeeze<br/>Drawdown and margin-call distance"]
+    L4["REPORT per name<br/>Direction, size, leverage, stop and exit rules<br/>Expected return, risk contribution<br/>Cost estimate, survival probability, model agreement"]
+    L1 --> L2 --> L3 --> L4
+end
+
+B2 --> L1
+
+%% ---------- STAGE 6 : EXECUTION AND HARD LIMITS ----------
+subgraph S6["STAGE 6 - Execution and Independent Risk Controls"]
+    direction TB
+    X1["Execution algorithms<br/>TWAP, VWAP, participation, limit-order logic<br/>Auction handling for ASX"]
+    X2["Hard limits OUTSIDE model code<br/>Daily loss limit, per-name cap, gross cap<br/>Kill switch and automatic de-leverage"]
+    X3["Broker reconciliation<br/>Positions, cash, margin<br/>Audit log of every decision"]
+    X2 --> X1 --> X3
+end
+
+L4 --> X2
+
+%% ---------- STAGE 7 : MONITORING ----------
+subgraph S7["STAGE 7 - Monitoring and Feedback Loop"]
+    direction TB
+    Q1["Forecast vs realised<br/>Error by model, layer, sleeve, regime"]
+    Q2["Drift detection<br/>PSI, CUSUM, change-point tests<br/>Alert when features or relationships shift"]
+    Q3["Automatic down-weighting of decaying models<br/>Retrain schedule and champion-challenger"]
+    Q4["Attribution<br/>Selection vs forecast vs allocation vs execution"]
+    Q1 --> Q2 --> Q3
+    Q1 --> Q4
+end
+
+X3 --> Q1
+Q3 -.->|"update weights"| C1
+Q3 -.->|"retrain"| F
+Q3 -.->|"retrain"| M
+Q3 -.->|"retrain"| U
+Q3 -.->|"retrain"| N
+Q4 -.->|"revise screens"| A0
+
+%% ---------- VALIDATION HARNESS ----------
+subgraph V["VALIDATION HARNESS (applies to every stage)"]
+    direction TB
+    V1["Walk-forward evaluation<br/>Purged and embargoed cross-validation"]
+    V2["Overfitting control<br/>Deflated Sharpe ratio<br/>Multiple-testing correction<br/>Untouched final holdout"]
+    V3["Leakage control<br/>Point-in-time data only<br/>Real-time macro vintages<br/>LLM evaluated only after its training cutoff"]
+    V4["Deployment gates<br/>Research, then paper trading, then small live capital<br/>Capital ramp tied to out-of-sample results<br/>Intraday needs realised vs simulated fill check"]
+    V1 --> V2 --> V3 --> V4
+end
+
+V -.-> S2
+V -.-> S4
+V -.-> S5
+
+%% ---------- STYLES ----------
+classDef data fill:#e8f1fb,stroke:#2b6cb0,color:#1a365d;
+classDef select fill:#fdf2e3,stroke:#c05621,color:#5f370e;
+classDef model fill:#e9f7ec,stroke:#2f855a,color:#1c4532;
+classDef risk fill:#fbeaea,stroke:#c53030,color:#63171b;
+classDef opt fill:#f1ecfa,stroke:#6b46c1,color:#322659;
+classDef ops fill:#eef0f3,stroke:#4a5568,color:#1a202c;
+
+class D1,D2,D3,D4,D5,KL data;
+class A0,A1,A2,A3,A4 select;
+class F1,F2,F3,F4,M1,M2,M3,M4,M5,U1,U2,U3,N1,N2,N3,N4,N5,C1,C2,C3 model;
+class R1,R2,R3,X2,L3 risk;
+class O1,O2,O3,O4,O5,B1,B2,L1,L2,L4 opt;
+class X1,X3,Q1,Q2,Q3,Q4,V1,V2,V3,V4 ops;
