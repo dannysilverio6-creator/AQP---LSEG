@@ -153,7 +153,7 @@ $$
 F_t=\prod_{e:\ t<\mathrm{ex}_e\le T} a_e,\qquad \tilde P_t = P_t\,F_t ,
 $$
 
-where $a_e = m/n$ for an $n\!:\!m$ split or consolidation and $a_e=\mathrm{TERP}/P_{\mathrm{cum}}$ for a rights issue. Total return accumulates dividends at the ex-date: $\mathrm{TR}_t=\mathrm{TR}_{t-1}(P_t+D_t)/P_{t-1}$.
+where $a_e = m/n$ for an $n\!:\!m$ split or consolidation and $a_e=\mathrm{TERP}/P_{\mathrm{cum}}$ for a rights issue. Total return accumulates dividends at the ex-date: $\mathrm{TR}_t=\mathrm{TR}_{t-1}(P_t+D_t)/P_{t-1}$ .
 
 Two subtleties matter:
 
