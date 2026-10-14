@@ -44,7 +44,7 @@ AQP-PYTHON/
 │   ├── derived/                   # features, forecasts, signals
 │   ├── runs/{run_id}/             # outputs, manifest, gate results per run
 │   └── catalog.duckdb
-├── src/quantpipe/
+├── src/AQP-PYTHON/
 │   ├── core/                      # shared infrastructure
 │   ├── s0_data/                   # Stage 0: point-in-time data
 │   ├── s0_knowledge/              # Stage 0: company knowledge layer
