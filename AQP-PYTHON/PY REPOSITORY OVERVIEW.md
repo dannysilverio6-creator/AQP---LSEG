@@ -1,4 +1,4 @@
-# Repository Overview — `quantpipe`
+# Repository Overview — AQP-PYTHON
 
 **Python implementation of the Multi-Market Quantitative Investment Pipeline**
 
