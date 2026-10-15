@@ -1,468 +1,450 @@
-# Repository Overview — AQP-PYTHON
+# AQP-PYTHON — Python Repository Overview
 
-**Python implementation of the Multi-Market Quantitative Investment Pipeline**
-
-| | |
-|---|---|
-| Methodology | `docs/quant_pipeline.md` (version 2, static universe) |
-| Language | Python 3.12 only |
-| Storage | Parquet files + DuckDB catalogue on local disk |
-| Sleeves | ASX interday · US interday · ASX intraday · US intraday |
-| Output | Position and leverage report + order tickets for manual placement |
-
-> **How this maps to the methodology.** Each package under `src/quantpipe/` corresponds to one stage of `quant_pipeline.md`, and keeps its stage number (`s0_` … `s7_`). Section references in brackets (e.g. [§4.6]) point to the methodology document.
+**Project:** AQP — Advanced Quantitative Pipeline  
+**Repository:** `AQP-PYTHON`  
+**Primary language:** Python  
+**Companion language:** R, kept separate and called through controlled adapters where required  
+**Intended environment:** Windows, Visual Studio Code, Git and a project-specific Python virtual environment  
+**Status:** Proposed repository layout and implementation guide
 
 ---
 
-## 1. Repository Tree
+## 1. Purpose
+
+`AQP-PYTHON` contains the Python implementation of the Advanced Quantitative Pipeline (AQP). It organises the workflow from market-data extraction and company selection through forecasting, portfolio construction, position sizing, execution controls, monitoring, plotting and automated run reporting.
+
+This document defines the **target repository structure**. A path shown below is a planned location until its script has actually been implemented and tested. The presence of a file in this tree does not imply that the corresponding model is complete, validated or approved for live trading.
+
+### Core design rules
+
+1. **One orchestrator:** `aqp_orchestrator.py` coordinates pipeline stages; individual stage scripts should not independently launch the entire workflow.
+2. **One common data contract:** stage outputs use documented schemas, timestamps, identifiers, units and status fields.
+3. **Point-in-time integrity:** features and selection decisions may use only information available at the decision timestamp.
+4. **Selection is not a trading signal:** Stage 1 forms a research universe; forecasting and portfolio stages determine whether an opportunity is worth taking.
+5. **Risk controls can veto:** safety checks and hard limits cannot be overridden by a model score, optimiser or narrative report.
+6. **Reproducible runs:** every run records its run ID, code/configuration versions, data references, model status and outputs.
+7. **Research before deployment:** backtests, paper trading and live deployment have separate readiness gates.
+
+## 2. Naming convention
+
+| Item | Convention | Example |
+|---|---|---|
+| Repository folder | `AQP-PYTHON` | `AQP-PYTHON/` |
+| Python package | `aqp_python` | `src/aqp_python/` |
+| Custom Python scripts | Prefix with `aqp_` | `aqp_stage_01_universe_selection.py` |
+| Stage folders | Include AQP package path and stage number | `stages/stage_01_universe/` |
+| Configuration files | Prefix with `aqp_`, use YAML where suitable | `aqp_risk_limits.yaml` |
+| Python tests | `test_*.py` | `test_aqp_data_validator.py` |
+| Test batches | Number and name by pipeline capability | `test_batch_03_universe/` |
+| Mermaid diagrams | Prefix with `aqp_`, use `.mmd` | `aqp_stage_01_universe.mmd` |
+| Generated run folders | Use a unique run ID, not a fixed overwritten name | `outputs/runs/<run_id>/` |
+
+Use readable names rather than forcing `AQP` into every standard Python filename. The package and repository already identify the project; custom modules and scripts should use the `aqp_` prefix consistently.
+
+## 3. Repository tree
 
 ```text
 AQP-PYTHON/
-├── pyproject.toml                 # dependencies, pinned with uv.lock
-├── uv.lock
-├── repository_overview.md
-├── configs/                       # every threshold lives here, none in code
-│   ├── base.yaml                  # paths, calendars, quantile grid, seeds
-│   ├── sleeves/
-│   │   ├── asx_interday.yaml
-│   │   ├── us_interday.yaml
-│   │   ├── asx_intraday.yaml
-│   │   └── us_intraday.yaml
-│   ├── universe.yaml              # formation rules + safety exits [§4]
-│   ├── models.yaml                # model families and hyperparameter grids
-│   ├── validation.yaml            # folds, purge/embargo, G3 criteria [§10]
-│   ├── risk.yaml                  # covariance, ES engines, stress library, G4 [§11]
-│   ├── leverage.yaml              # Kelly fraction, vol target, DD_max, G5 [§12]
-│   ├── execution.yaml             # cost model, participation caps, hard limits [§13]
-│   └── data_sources.yaml          # provider credentials *references* (never secrets)
-├── data/                          # NOT committed (in .gitignore)
-│   ├── raw/                       # append-only provider responses
-│   ├── pit/                       # bitemporal facts
-│   ├── market/                    # daily and intraday bars, ticks
-│   ├── knowledge/                 # stickers, labels, peers, graph (versioned)
-│   ├── universe/                  # frozen universe versions U_{T0}, U_{T1}, …
-│   ├── derived/                   # features, forecasts, signals
-│   ├── runs/{run_id}/             # outputs, manifest, gate results per run
-│   └── catalog.duckdb
-├── src/AQP-PYTHON/
-│   ├── core/                      # shared infrastructure
-│   ├── s0_data/                   # Stage 0: point-in-time data
-│   ├── s0_knowledge/              # Stage 0: company knowledge layer
-│   ├── s1_universe/               # Stage 1: archetype builder (static)
-│   ├── s2_models/                 # Stage 2: four forecast layers
-│   ├── s2e_combine/               # Stage 2E: validation, eligibility, combination
-│   ├── s3_risk/                   # Stage 3: risk model
-│   ├── s4_portfolio/              # Stage 4: optimiser + sleeve allocator
-│   ├── s5_leverage/               # Stage 5: leverage, decisions, report
-│   ├── s6_execution/              # Stage 6: cost model, tickets, hard limits
-│   ├── s7_monitoring/             # Stage 7: drift, recalibration, attribution
-│   ├── backtest/                  # event-driven simulator
-│   └── cli.py                     # command-line entry points
+├── README.md
+├── PY REPOSITORY OVERVIEW.md
+├── pyproject.toml
+├── requirements.txt
+├── requirements-dev.txt
+├── .gitignore
+├── .env.example
+├── .pre-commit-config.yaml
+│
+├── .vscode/
+│   ├── settings.json
+│   ├── launch.json
+│   └── tasks.json
+│
+├── configs/
+│   ├── aqp_pipeline.yaml
+│   ├── aqp_markets.yaml
+│   ├── aqp_data_sources.yaml
+│   ├── aqp_universe_rules.yaml
+│   ├── aqp_forecast_models.yaml
+│   ├── aqp_validation.yaml
+│   ├── aqp_risk_limits.yaml
+│   ├── aqp_execution.yaml
+│   └── aqp_reporting.yaml
+│
+├── docs/
+│   ├── architecture/
+│   │   ├── aqp_system_architecture.md
+│   │   ├── aqp_data_dictionary.md
+│   │   └── aqp_model_registry.md
+│   ├── methodology/
+│   │   ├── aqp_stage_00_data.md
+│   │   ├── aqp_stage_01_universe.md
+│   │   ├── aqp_stage_02_forecasting.md
+│   │   ├── aqp_stages_03_04_portfolio.md
+│   │   ├── aqp_stage_05_sizing.md
+│   │   ├── aqp_stage_06_execution.md
+│   │   └── aqp_stage_07_monitoring.md
+│   └── diagrams/
+│       ├── aqp_pipeline_overview.mmd
+│       ├── aqp_stage_00_data.mmd
+│       ├── aqp_stage_01_universe.mmd
+│       ├── aqp_stage_02_forecasting.mmd
+│       ├── aqp_stage_02a_financial.mmd
+│       ├── aqp_stage_02b_macro.mmd
+│       ├── aqp_stage_02c_micro_market.mmd
+│       ├── aqp_stage_02d_news.mmd
+│       ├── aqp_stage_02e_validation.mmd
+│       ├── aqp_stages_03_04_portfolio.mmd
+│       ├── aqp_stage_05_sizing.mmd
+│       ├── aqp_stage_06_execution.mmd
+│       ├── aqp_safety_controls.mmd
+│       └── aqp_stage_07_monitoring.mmd
+│
+├── data/
+│   ├── README.md
+│   ├── raw/                 # Original inputs; normally excluded from Git
+│   ├── interim/             # Intermediate transformed data
+│   ├── processed/           # Validated, analysis-ready datasets
+│   ├── reference/           # Symbol mappings, calendars, classifications
+│   └── samples/             # Small synthetic/non-sensitive fixtures for tests
+│
+├── src/
+│   └── aqp_python/
+│       ├── __init__.py
+│       ├── cli.py
+│       ├── logging_config.py
+│       ├── config/
+│       │   ├── aqp_config_loader.py
+│       │   └── aqp_config_validation.py
+│       ├── contracts/
+│       │   ├── aqp_data_schemas.py
+│       │   ├── aqp_forecast_schema.py
+│       │   ├── aqp_portfolio_schema.py
+│       │   └── aqp_run_manifest.py
+│       ├── connectors/
+│       │   └── lseg/
+│       │       ├── __init__.py
+│       │       ├── aqp_lseg_session.py
+│       │       ├── aqp_lseg_instruments.py
+│       │       └── aqp_lseg_fields.py
+│       ├── orchestration/
+│       │   ├── aqp_orchestrator.py
+│       │   ├── aqp_stage_router.py
+│       │   ├── aqp_run_context.py
+│       │   └── aqp_run_manifest_writer.py
+│       ├── storage/
+│       │   ├── aqp_storage_paths.py
+│       │   ├── aqp_dataset_registry.py
+│       │   └── aqp_run_store.py
+│       ├── stages/
+│       │   ├── stage_00_data/
+│       │   │   ├── __init__.py
+│       │   │   ├── aqp_lseg_extractor.py
+│       │   │   ├── aqp_hfd_builder.py
+│       │   │   ├── aqp_lfd_builder.py
+│       │   │   ├── aqp_corporate_actions.py
+│       │   │   ├── aqp_data_validator.py
+│       │   │   └── aqp_point_in_time_controls.py
+│       │   │
+│       │   ├── stage_01_universe/
+│       │   │   ├── __init__.py
+│       │   │   ├── aqp_candidate_universe.py
+│       │   │   ├── aqp_company_screening.py
+│       │   │   ├── aqp_universe_scoring.py
+│       │   │   ├── aqp_archetype_assignment.py
+│       │   │   ├── aqp_universe_formation.py
+│       │   │   └── aqp_safety_exit_monitor.py
+│       │   │
+│       │   ├── stage_02_forecasting/
+│       │   │   ├── __init__.py
+│       │   │   ├── aqp_forecast_runner.py
+│       │   │   ├── aqp_forecast_registry.py
+│       │   │   ├── aqp_forecast_adapter.py
+│       │   │   ├── financial/
+│       │   │   │   ├── aqp_financial_features.py
+│       │   │   │   ├── aqp_return_forecast.py
+│       │   │   │   └── aqp_distress_model.py
+│       │   │   ├── macro/
+│       │   │   │   ├── aqp_macro_features.py
+│       │   │   │   ├── aqp_macro_state_model.py
+│       │   │   │   └── aqp_macro_sensitivity.py
+│       │   │   ├── micro_market/
+│       │   │   │   ├── aqp_interday_market_model.py
+│       │   │   │   ├── aqp_intraday_features.py
+│       │   │   │   └── aqp_market_microstructure_model.py
+│       │   │   ├── news/
+│       │   │   │   ├── aqp_news_ingestion.py
+│       │   │   │   ├── aqp_news_event_extractor.py
+│       │   │   │   ├── aqp_news_novelty_check.py
+│       │   │   │   └── aqp_news_event_forecast.py
+│       │   │   └── validation/
+│       │   │       ├── aqp_walk_forward_validation.py
+│       │   │       ├── aqp_forecast_calibration.py
+│       │   │       ├── aqp_model_eligibility.py
+│       │   │       └── aqp_signal_combiner.py
+│       │   │
+│       │   ├── stages_03_04_portfolio/
+│       │   │   ├── __init__.py
+│       │   │   ├── aqp_covariance_estimator.py
+│       │   │   ├── aqp_portfolio_risk.py
+│       │   │   ├── aqp_stress_testing.py
+│       │   │   ├── aqp_portfolio_optimizer.py
+│       │   │   └── aqp_sleeve_allocator.py
+│       │   │
+│       │   ├── stage_05_sizing/
+│       │   │   ├── __init__.py
+│       │   │   ├── aqp_position_sizer.py
+│       │   │   ├── aqp_kelly_cap.py
+│       │   │   ├── aqp_leverage_rules.py
+│       │   │   └── aqp_position_report.py
+│       │   │
+│       │   ├── stage_06_execution/
+│       │   │   ├── __init__.py
+│       │   │   ├── aqp_order_intent.py
+│       │   │   ├── aqp_execution_simulator.py
+│       │   │   ├── aqp_cost_slippage_model.py
+│       │   │   └── aqp_fill_reconciliation.py
+│       │   │
+│       │   └── stage_07_monitoring/
+│       │       ├── __init__.py
+│       │       ├── aqp_performance_monitor.py
+│       │       ├── aqp_data_drift_monitor.py
+│       │       ├── aqp_model_drift_monitor.py
+│       │       ├── aqp_run_diagnostics.py
+│       │       └── aqp_readiness_status.py
+│       │
+│       ├── safety/
+│       │   ├── __init__.py
+│       │   ├── aqp_pre_trade_checks.py
+│       │   ├── aqp_hard_limits.py
+│       │   ├── aqp_kill_switch.py
+│       │   └── aqp_restart_approval.py
+│       │
+│       ├── compiler/
+│       │   ├── __init__.py
+│       │   ├── aqp_plot_compiler.py
+│       │   ├── aqp_report_compiler.py
+│       │   └── aqp_run_artifact_index.py
+│       │
+│       └── reporting/
+│           ├── __init__.py
+│           ├── aqp_metrics_summary.py
+│           ├── aqp_narrative_report.py
+│           └── aqp_report_fact_checks.py
+│
+├── r_models/               # Python package invokes R through a documented adapter
+│   ├── README.md
+│   ├── scripts/
+│   │   └── aqp_realised_garch.R
+│   └── adapters/
+│       └── aqp_r_model_adapter.py
+│
+├── scripts/
+│   ├── aqp_run_pipeline.py
+│   ├── aqp_validate_environment.py
+│   ├── aqp_build_sample_data.py
+│   └── aqp_export_diagrams.ps1
+│
 ├── tests/
+│   ├── conftest.py
 │   ├── unit/
-│   ├── leakage/                   # look-ahead and survivorship tests
-│   ├── integration/               # end-to-end on synthetic data
-│   └── fixtures/                  # synthetic data generators only
-└── notebooks/                     # research only; never imported by src/
+│   │   ├── test_aqp_config_loader.py
+│   │   ├── test_aqp_data_validator.py
+│   │   ├── test_aqp_universe_scoring.py
+│   │   ├── test_aqp_forecast_schema.py
+│   │   ├── test_aqp_portfolio_constraints.py
+│   │   └── test_aqp_safety_controls.py
+│   ├── integration/
+│   │   ├── test_aqp_stage_handoffs.py
+│   │   └── test_aqp_run_artifacts.py
+│   └── test_batches/
+│       ├── test_batch_01_foundation/
+│       ├── test_batch_02_data_extraction/
+│       ├── test_batch_03_universe_selection/
+│       ├── test_batch_04_forecasting_validation/
+│       ├── test_batch_05_portfolio_sizing_safety/
+│       ├── test_batch_06_execution_simulation/
+│       └── test_batch_07_monitoring_end_to_end/
+│
+├── outputs/                # Generated artifacts; normally excluded from Git
+│   ├── runs/
+│   ├── plots/
+│   ├── reports/
+│   ├── diagnostics/
+│   └── logs/
+│
+└── build/                  # Temporary local build/export outputs; normally excluded from Git
 ```
 
----
+## 4. Stage-by-stage responsibilities
 
-## 2. Package-by-Package Description
+| Stage | Main entry point(s) | Responsibility | Principal output |
+|---|---|---|---|
+| **00 — Data** | `aqp_lseg_extractor.py`, `aqp_data_validator.py` | Extract LSEG data, construct HFD/LFD datasets, handle corporate actions, validate fields and enforce point-in-time rules. | Validated historical and event datasets with data-quality flags. |
+| **01 — Universe** | `aqp_universe_formation.py` | Apply hard eligibility gates, compute category and composite scores, assign archetypes and version the research universe. | Frozen, versioned universe plus exclusion reasons and score details. |
+| **02 — Forecasting** | `aqp_forecast_runner.py` | Run financial, macro, interday/intraday market and news models through a shared forecast contract. | Forecast distribution/quantiles, horizon, uncertainty, provenance and status. |
+| **02E — Validation** | `aqp_walk_forward_validation.py`, `aqp_model_eligibility.py` | Evaluate forecasts chronologically out of sample, assess calibration and determine whether a model is eligible for combination. | Validation metrics and model eligibility decisions. |
+| **03–04 — Portfolio** | `aqp_portfolio_optimizer.py` | Estimate portfolio risk, stress scenarios, optimise within constraints and allocate risk across trading sleeves. | Proposed portfolio weights and risk diagnostics. |
+| **05 — Sizing** | `aqp_position_sizer.py`, `aqp_leverage_rules.py` | Apply position, Kelly-fraction, volatility, leverage, liquidity and margin constraints. | Bounded target positions and an auditable sizing report. |
+| **06 — Execution** | `aqp_execution_simulator.py` | Convert approved intents into simulated orders, model costs/slippage and reconcile fills. | Order, fill, cost and reconciliation records. |
+| **07 — Monitoring** | `aqp_performance_monitor.py` | Track performance, data/model drift, run health, plots and readiness status. | Diagnostics, monitoring metrics and status. |
+| **Safety — Independent** | `aqp_pre_trade_checks.py`, `aqp_kill_switch.py` | Enforce hard limits, block invalid orders and require an explicit process for restart after a stop. | Allow/block decisions with reason codes. |
+| **Compiler/reporting** | `aqp_plot_compiler.py`, `aqp_narrative_report.py` | Gather model plots and structured run facts; generate an evidence-based run report. | Indexed plots and a narrative report tied to the run ID. |
 
-### 2.1 `core/` — shared infrastructure
+### Standard forecast contract
 
-| Module | Responsibility |
-|---|---|
-| `config.py` | Loads and validates YAML into typed objects (pydantic); merges `base.yaml` with a sleeve file |
-| `types.py` | Shared data structures: `ForecastDist`, `UniverseVersion`, `GateResult`, `Position`, `Ticket` (Section 3) |
-| `pit.py` | The **only** read path for model code: `pit.read(dataset, as_of, obs=None)` [§3.1] |
-| `calendar.py` | ASX and US trading calendars, session times, holidays; Sydney ↔ UTC conversion |
-| `store.py` | Atomic Parquet writes (temp file + rename), DuckDB views, checksums |
-| `gates.py` | `Gate` base class and the G1–G7 implementations' common reporting format [§2.2] |
-| `manifest.py` | Run ID, config hash, input hashes, gate outcomes written to `runs/{run_id}/manifest.json` |
-| `registry.py` | Model registry and **experiment trial counter** used by the deflated Sharpe ratio [§10.2] |
-| `rng.py` | Seeded random streams so every run is reproducible |
+Forecasting models should return a documented object rather than arbitrary, inconsistent files. At minimum, record:
 
-### 2.2 `s0_data/` — point-in-time data [§3]
+- instrument identifier, market and sleeve;
+- forecast creation timestamp and information cut-off timestamp;
+- target variable, forecast horizon and units;
+- point forecast and available predictive quantiles or distribution parameters;
+- uncertainty/calibration fields where available;
+- model name/version, training window and data lineage;
+- validation status and eligibility status;
+- warnings, missing-input flags and failure reason codes.
 
-| Module | Responsibility |
-|---|---|
-| `sources/lseg.py` | ASX market data, fundamentals, estimates, news via the LSEG Data Library; rate limiting and request ledger |
-| `sources/us_market.py` | US market and fundamentals provider adapter (provider still to be chosen) |
-| `sources/macro.py` | Macro series **with vintages** per economy (RBA, ABS, FRED/ALFRED, China, etc.) |
-| `sources/news.py` | Wire and exchange announcements with publication timestamps |
-| `sources/base.py` | `DataSource` protocol all adapters implement, so providers can be swapped |
-| `ingest.py` | Incremental loads with watermarks; append-only to `raw/` |
-| `pit_store.py` | Bitemporal merge: closes `known_to` on old versions, opens new ones; never updates |
-| `knowledge_time.py` | Knowledge-time rules per data type (announcement time, release time, first-seen) |
-| `corporate_actions.py` | Adjustment factors, total-return series, tradability flags [§3.3] |
-| `quality.py` | **◆ G2** data-integrity firewall: BLOCK / QUARANTINE / WARN checks [§3.4] |
+Do not compare or combine forecasts with different targets, horizons or units until they have been explicitly aligned.
 
-### 2.3 `s0_knowledge/` — company knowledge layer [§3.5]
-
-| Module | Responsibility |
-|---|---|
-| `stickers.py` | Builds versioned revenue and cost exposure vectors $\mathbf e^{\mathrm{rev}}_i$, $\mathbf e^{\mathrm{cost}}_i$ from segment disclosures |
-| `labels.py` | Market, industry, venue and currency labels |
-| `peers.py` | Data-driven peer clusters from return correlations and business-description embeddings |
-| `graph.py` | Relationship graph $W$ (supplier, customer, competitor); spectral-radius check |
-| `extract_relations.py` | LLM-assisted extraction of relationships from filings, written to the graph with source IDs |
-
-### 2.4 `s1_universe/` — archetype builder, static universe [§4]
-
-| Module | Responsibility |
-|---|---|
-| `survival.py` | Merton DD solver, Altman Z, interest cover, leverage, runway, F-score [§4.2] |
-| `liquidity.py` | MDTV, Amihud, Roll spread, zero-volume ratio, quoted spread [§4.3] |
-| `archetypes.py` | Fit tests per archetype, HAR forecastability test, beta CUSUM stability [§4.4] |
-| `scoring.py` | Robust sector-neutral z-scores and composite score $q_i$ [§4.5] |
-| `formation.py` | **◆ G1 at formation.** Runs the full screen once at $T_0$, writes a frozen `UniverseVersion` with reason codes |
-| `safety_exits.py` | **◆ G1 after formation.** Checks only `EXIT-DIST`, `EXIT-DLST`, `EXIT-SUSP`, `EXIT-TKO`, `EXIT-LIQ` [§4.6] |
-| `tiers.py` | One-off data-depth tier assignment at formation [§4.7] |
-
-**Static-universe rules enforced in code:**
-
-- `UniverseVersion` is immutable. `formation.py` is the only code that creates one.
-- `safety_exits.py` can only *remove* members; there is no function that adds a member to an existing version.
-- No module in `s2_` to `s7_` may import from `s1_universe.scoring` or `formation` — enforced by an import-linter rule in the tests.
-- A re-formation creates a new version file (`universe/asx_interday/U_2026-10-14.parquet`) and is triggered only by the `form-universe` command.
-
-### 2.5 `s2_models/` — forecast layers [§5–9]
+## 5. Orchestration and expected run flow
 
 ```text
-s2_models/
-├── base.py              # ForecastModel protocol, quantile grid, pinball/CRPS
-├── targets.py           # excess-return targets with label_end for purging [§5.2]
-├── features/
-│   ├── market.py        # momentum, reversal, volatility, illiquidity
-│   ├── fundamental.py   # value, profitability, accruals, revisions, SUE
-│   └── transform.py     # in-fold robust z / rank-Gauss (never full-sample)
-├── financial/           # §6
-│   ├── baselines.py     # random walk, historical mean, factor model, EWMA vol
-│   ├── returns.py       # elastic net, LightGBM quantile, quantile forest
-│   ├── volatility.py    # GJR-GARCH-t, EGARCH (arch), HAR-RV(-J)
-│   ├── distress.py      # discrete-time hazard model → p_dist
-│   └── state_space.py   # Kalman time-varying betas (filtered only)
-├── macro/               # §7
-│   ├── dfm.py           # dynamic factor model per economy
-│   ├── regimes.py       # Markov-switching, Hamilton filter → π_t(k)
-│   ├── nowcast.py       # MIDAS, Minnesota-prior BVAR
-│   ├── exposure.py      # sticker-weighted company macro factor
-│   ├── sensitivities.py # empirical-Bayes shrinkage toward sticker prior
-│   ├── events.py        # standardised release surprises
-│   ├── transmission.py  # local projections → sector IRFs → firm shocks
-│   └── fx.py            # net FX exposure from revenue/cost stickers
-├── micro/               # §8
-│   ├── panel.py         # two-way FE with clustered errors (linearmodels)
-│   ├── hierarchical.py  # partial pooling by market label
-│   ├── dml.py           # double machine learning (cross-fitted)
-│   ├── earnings.py      # earnings-response coefficients by group
-│   ├── realised.py      # trade cleaning, RV, BV, realised kernel, jumps
-│   └── microstructure.py# Hawkes, ACD, order-flow imbalance, Kyle λ
-└── news/                # §9
-    ├── ingest.py        # dedupe, entity linking, source credibility
-    ├── extract.py       # LLM structured extraction (fixed schema, pinned model)
-    ├── schema.py        # pydantic schema for extracted events
-    ├── novelty.py       # embedding novelty, priced-in check
-    ├── propagate.py     # (I − δW)⁻¹ s⁰ propagation with time decay
-    └── model.py         # calibrated shock probability + quantile model
+Configuration and run ID
+        ↓
+Stage 00: Extract and validate data
+        ↓
+Stage 01: Form the research universe
+        ↓
+Stage 02: Generate forecasts in parallel
+        ↓
+Stage 02E: Validate and combine eligible forecasts
+        ↓
+Stages 03–04: Risk estimation and portfolio optimisation
+        ↓
+Stage 05: Position sizing and leverage constraints
+        ↓
+Independent safety approval
+        ↓
+Stage 06: Execution simulation / approved execution adapter
+        ↓
+Stage 07: Monitoring and readiness evaluation
+        ↓
+Compile plots, diagnostics, run manifest and narrative report
 ```
 
-Every model class implements the same interface (Section 3.2), so Stage 2E treats all four layers identically.
+The orchestrator should stop, block, or mark a run degraded when an essential stage fails. A failed model may be skipped only if the relevant configuration defines an approved fallback and the run records the degradation. The narrative report must describe the recorded output; it must not invent results or override a safety decision.
 
-### 2.6 `s2e_combine/` — validation, eligibility, combination [§10]
+## 6. Required run outputs
 
-| Module | Responsibility |
-|---|---|
-| `splits.py` | Purged, embargoed walk-forward folds with nested inner splits [§10.1] |
-| `stat_tests.py` | Diebold–Mariano (HLN), Giacomini–White, Hansen SPA, MCS, Romano–Wolf |
-| `overfitting.py` | Deflated Sharpe ratio (trial count from `core.registry`), PBO via CSCV |
-| `eligibility.py` | **◆ G3**: convergence, stability, calibration, OOS skill, net-of-cost value, overfitting [§10.3] |
-| `combine.py` | Inverse-CRPS weights, stacking, regime weights, shrinkage to equal weights [§10.4] |
-| `conformal.py` | CQR and adaptive conformal calibration [§10.5] |
-| `alpha_decay.py` | IC term structure, half-life, horizon choice per sleeve [§10.6] |
-
-### 2.7 `s3_risk/` — risk model [§11.1–11.3]
-
-| Module | Responsibility |
-|---|---|
-| `covariance.py` | Ledoit–Wolf, factor model, DCC-GARCH, regime mixture; cross-market lead–lag treatment |
-| `tail.py` | Filtered historical simulation, GJR-t Monte Carlo with t-copula, EVT; Euler ES contributions |
-| `risk_backtest.py` | Kupiec, Christoffersen, Acerbi–Székely; engine demotion |
-| `stress.py` | Stress library including sticker-driven and graph-contagion scenarios |
-
-### 2.8 `s4_portfolio/` — optimiser and allocator [§11.4–11.5]
-
-| Module | Responsibility |
-|---|---|
-| `black_litterman.py` | Equilibrium prior + combined forecasts as views |
-| `optimiser.py` | Cost-aware convex problem (cvxpy + Clarabel) with liquidity, sector, country, CVaR constraints; infeasibility protocol |
-| `risk_limits.py` | **◆ G4** post-optimisation checks |
-| `allocator.py` | Risk budgeting across sleeves; intraday cap; FX budget |
-
-### 2.9 `s5_leverage/` — leverage, decisions, report [§12]
-
-| Module | Responsibility |
-|---|---|
-| `kelly.py` | Uncertainty-adjusted fractional Kelly cap |
-| `leverage.py` | $L_t=\min\{\cdot\}\times$ drawdown multiplier; intraday vs overnight; financing cost; **◆ G5** |
-| `decision.py` | State machine, no-trade band, invalidation conditions |
-| `governance.py` | **◆ G6** NO-TRADE rule sets |
-| `report.py` | Per-company and per-sleeve position and leverage report (Markdown, HTML, XLSX, JSON) |
-
-### 2.10 `s6_execution/` — execution modelling [§13.1–13.2]
-
-| Module | Responsibility |
-|---|---|
-| `cost_model.py` | Spread + square-root impact + commission; recalibration of $Y$ from fills |
-| `schedule.py` | Almgren–Chriss schedule; auction vs VWAP choice |
-| `tickets.py` | Order tickets for **manual** placement with the broker |
-| `fills.py` | Imports executed fills; implementation shortfall |
-| `hard_limits.py` | Daily loss, drawdown halt, P&L divergence, per-name and gross caps — no imports from model packages |
-
-### 2.11 `s7_monitoring/` — monitoring and learning [§13.3–13.5]
-
-| Module | Responsibility |
-|---|---|
-| `drift.py` | PSI, KS, Page–Hinkley, calibration coverage, alpha-decay alarms |
-| `recalibration.py` | Trigger → action policy table |
-| `lifecycle.py` | Candidate → shadow → challenger → champion; **◆ G7** |
-| `attribution.py` | Stage, layer, Brinson–Fachler, factor and execution attribution |
-
-Monitoring never writes to `data/universe/`; it can only change model weights, model status and sleeve budgets.
-
-### 2.12 `backtest/`
-
-An event-driven simulator that calls the **same** `s4_`–`s6_` functions used for live tickets: decision after the close, fill at the next session, participation caps, lot sizes, delisting haircut. Each backtest forms its universe at its own start date from point-in-time data.
-
----
-
-## 3. Key Interfaces
-
-### 3.1 Forecast distribution (common language of Stage 2)
-
-```python
-@dataclass(frozen=True)
-class ForecastDist:
-    model_id: str            # "financial/lgbm_quantile@1.2.0"
-    sleeve: str              # "asx_interday"
-    as_of: pd.Timestamp      # decision time t
-    horizon: int             # h, sessions
-    sec_ids: np.ndarray      # (n,)
-    quantiles: np.ndarray    # (n, len(TAU_GRID)), monotone along axis 1
-    label_end: pd.Timestamp  # used for purging
-
-TAU_GRID = (0.01, 0.025, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.975, 0.99)
-```
-
-### 3.2 Forecast model protocol
-
-```python
-class ForecastModel(Protocol):
-    id: str
-    layer: Literal["financial", "macro", "micro", "news"]
-    horizons: tuple[int, ...]
-
-    def fit(self, train: FeaturePanel, targets: TargetPanel) -> FitReport: ...
-    def predict(self, panel: FeaturePanel, as_of: pd.Timestamp,
-                horizon: int) -> ForecastDist: ...
-    def diagnostics(self) -> dict[str, float]: ...   # convergence, stability → G3
-```
-
-### 3.3 Frozen universe
-
-```python
-@dataclass(frozen=True)
-class UniverseVersion:
-    sleeve: str
-    formation_date: pd.Timestamp
-    members: frozenset[str]
-    archetypes: Mapping[str, tuple[str, ...]]
-    tiers: Mapping[str, Literal["T1", "T2", "T3"]]
-    rejections: Mapping[str, str]          # sec_id -> reason code
-    exits: Mapping[str, tuple[pd.Timestamp, str]] = field(default_factory=dict)
-
-    def active(self, as_of: pd.Timestamp) -> frozenset[str]:
-        """Members not exited on or before as_of. Never adds names."""
-```
-
-### 3.4 Point-in-time read
-
-```python
-df = pit.read("fundamentals", as_of=t, fields=["eps", "ebit"], sec_ids=universe.active(t))
-```
-
-Raw tables are not importable by model code; a leakage test inserts "future-poison" rows and fails if any reach a model input.
-
----
-
-## 4. Configuration Examples
-
-### 4.1 `configs/universe.yaml`
-
-```yaml
-universe:
-  mode: static                 # filtration runs once at formation
-  formation:
-    admission_rank_min: 0.50
-    min_size: {asx_interday: 60, us_interday: 80, asx_intraday: 20, us_intraday: 30}
-    max_size: {asx_interday: 200, us_interday: 300, asx_intraday: 40, us_intraday: 60}
-    history_min_days: 252
-  survival:
-    distress_prob_max: 0.05    # hazard model, 12-month horizon
-    icr_min: 2.0
-    nd_ebitda_max: 4.0
-    runway_min_quarters: 4
-    altman_z_min: 1.8
-  liquidity:
-    mdtv_min: {AUD: 5.0e5, USD: 2.0e6}
-    zero_volume_max: 0.05
-    intraday_spread_max_bps: 10
-  safety_exits:
-    distress_prob_max: 0.05
-    suspension_max_sessions: 5
-    liquidity_collapse: {mdtv_fraction_of_floor: 0.5, sessions: 60}
-    replace_exited: false      # never
-  reformation:
-    trigger: manual            # deliberate decision only
-    advisory_min_fraction: 0.70
-```
-
-### 4.2 `configs/sleeves/us_interday.yaml`
-
-```yaml
-sleeve: us_interday
-market: US
-currency: USD
-calendar: XNYS
-data_source: us_market
-horizons: [5, 21]
-execution: {default: closing_auction, vwap_if_auction_share_above: 0.05}
-risk_budget_initial: 0.30
-overnight: true
-fx: {base: AUD, hedge: false, budget_vol: 0.03}
-```
-
-### 4.3 `configs/leverage.yaml`
-
-```yaml
-leverage:
-  kelly_fraction: 0.25
-  vol_target_annual: 0.10
-  max_gross: 1.5
-  drawdown_max: 0.20
-  margin_buffer: 0.30          # headroom after worst stress
-  intraday_max_gross: 2.0
-  overnight_uses_gap_stress: true
-```
-
----
-
-## 5. Python Dependencies
-
-| Area | Libraries |
-|---|---|
-| Data handling | `pandas`, `polars` (large panels), `pyarrow`, `duckdb` |
-| Numerics | `numpy`, `scipy`, `numba` (Hawkes, ACD, bootstrap and backtest loops) |
-| Econometrics | `statsmodels` (Markov switching, dynamic factor, Kalman, local projections), `arch` (GARCH family, bootstrap), `linearmodels` (panel FE) |
-| Machine learning | `scikit-learn`, `lightgbm`, `quantile-forest`, `doubleml` |
-| Optimisation | `cvxpy` with `clarabel` |
-| Text and LLM | provider SDK for the chosen LLM, `sentence-transformers` (embeddings), `pydantic` (extraction schema) |
-| Data providers | `lseg-data` (ASX); US provider package to be chosen |
-| Config and CLI | `pydantic`, `pyyaml`, `typer` |
-| Reporting | `jinja2`, `matplotlib`, `openpyxl` |
-| Quality | `pytest`, `hypothesis`, `ruff`, `mypy`, `import-linter` |
-
-**Performance note.** Python is sufficient for this design. The handful of sequential loops (Hawkes likelihood, SPA bootstrap, event-driven backtest, tick cleaning) are written with `numba`; GARCH uses `arch`; everything else is vectorised NumPy or library code that is already compiled.
-
----
-
-## 6. Running the Pipeline
-
-All runs are started manually from the command line.
-
-```bash
-# 1. Install
-uv sync
-
-# 2. Load or refresh data up to a date
-quantpipe ingest --sleeve asx_interday --as-of 2026-10-14
-
-# 3. Build the knowledge layer (stickers, labels, peers, graph)
-quantpipe knowledge --as-of 2026-10-14
-
-# 4. Form the static universe ONCE per sleeve
-quantpipe form-universe --sleeve asx_interday --as-of 2026-10-14
-
-# 5. Daily run: safety exits -> models -> combine -> risk -> optimise -> leverage -> report + tickets
-quantpipe run --sleeve asx_interday --as-of 2026-10-14
-
-# 6. All sleeves plus the cross-sleeve allocator
-quantpipe run --all --as-of 2026-10-14
-
-# 7. Backtest (forms its own universe at the start date)
-quantpipe backtest --sleeve asx_interday --start 2016-01-04 --end 2026-09-30
-
-# 8. Model lifecycle review
-quantpipe review-models --sleeve asx_interday
-```
-
-### What `quantpipe run` does, in order
+Each run should be written to `outputs/runs/<run_id>/` with a predictable layout, for example:
 
 ```text
-load configs + UniverseVersion
- → s0_data: incremental ingest, PIT merge, ◆ G2
- → s1_universe.safety_exits: remove exited names (no additions)
- → s2_models: fit/predict each layer → ForecastDist
- → s2e_combine: ◆ G3 eligibility → combine → conformal → horizon
- → s3_risk: covariance, ES engines, stress
- → s4_portfolio: Black–Litterman → optimiser → ◆ G4 → sleeve allocator
- → s5_leverage: leverage rule → ◆ G5 → decisions → ◆ G6
- → s6_execution: tickets (manual placement), hard-limit check
- → s7_monitoring: drift and attribution on previous fills
- → write report + manifest to data/runs/{run_id}/
+outputs/runs/<run_id>/
+├── run_manifest.json
+├── config_snapshot.yaml
+├── data_quality_summary.csv
+├── universe/
+│   ├── selected_companies.csv
+│   └── exclusions.csv
+├── forecasts/
+├── portfolio/
+├── sizing/
+├── execution/
+├── diagnostics/
+├── plots/
+└── reports/
+    ├── run_summary.json
+    └── aqp_run_report.md
 ```
 
-A failed gate stops only the branch it governs and is recorded in the manifest; it never silently passes downstream.
+The run manifest should record the run ID, timestamps and timezone, Git commit if available, configuration hash, data references, universe version, model versions, stage statuses, warnings, output paths and failure reasons. Use immutable run-specific output folders so a later run does not overwrite the evidence from an earlier run.
 
----
+### Plot and report requirements
 
-## 7. Testing Strategy
+- Each model should save traceable plots into the current run's `plots/` folder.
+- Plot filenames should contain stable identifiers for the model, instrument or market, and plot type. Avoid embedding all metadata only in the image.
+- `aqp_plot_compiler.py` should build a manifest/index of produced plots and report missing expected outputs.
+- `aqp_narrative_report.py` should use the structured run summary as its source of truth. Any AI-generated prose must distinguish measured results, model interpretations, limitations and failures.
+- If report generation fails, retain the structured run summary and mark the narrative-report stage as failed; do not mark the full pipeline successful merely because earlier stages completed.
 
-| Test type | What it checks |
-|---|---|
-| Unit | Each formula against a hand-worked value (e.g. the worked examples in the methodology) |
-| Reference parity | GJR likelihood vs `arch`, SPA vs a NumPy reference, Kupiec vs closed form |
-| Leakage | Future-poison rows never reach a model; shifting features by one day must change results; restated values invisible before their knowledge time |
-| Survivorship | Backtest universes include later-delisted names |
-| Static universe | No code path adds a member to an existing `UniverseVersion`; monitoring cannot write to `data/universe/` |
-| Gate behaviour | Each gate's pass and fail branches on synthetic inputs |
-| Integration | Full `run` on synthetic data for all four sleeves |
-| Determinism | Same inputs + config + seed → identical output hashes |
+## 7. Seven ordered test batches
 
-Fixtures are generated synthetically; no licensed data is stored in the repository.
+Run batches in order. Each batch should have a README describing its objective, fixtures, command, expected artifacts and pass criteria. Use synthetic or sanitised data in automated tests; do not commit credentials or proprietary raw data.
 
----
-
-## 8. Suggested Build Order
-
-| Phase | Scope | Done when |
+| Batch | Scope | Example pass condition |
 |---|---|---|
-| 1 | `core`, `s0_data` (ASX daily), PIT store, G2 | 20 consecutive days ingested with G2 green and identical hashes on re-run |
-| 2 | `s0_knowledge` (stickers, labels), `s1_universe`, formation of ASX interday universe | Formation reproducible; safety exits tested on historical delistings |
-| 3 | `s2_models` baselines + GJR/HAR + elastic net + LightGBM; `s2e_combine` | G3 decisions for at least three families; DSR uses registry trial counts |
-| 4 | `s3_risk`, `s4_portfolio`, `s5_leverage`, `s6_execution` tickets; `backtest` | Paper trading for 40 sessions with full gate traces |
-| 5 | Macro layer (DFM, regimes, sensitivities, transmission) and micro layer (panel, hierarchical) | Both layers pass G3 or are documented as non-eligible |
-| 6 | US interday sleeve, FX channel, sleeve allocator | Cross-sleeve covariance and allocator validated |
-| 7 | News layer (LLM extraction, propagation) | Evaluated only on post-cutoff news; forward paper results |
-| 8 | Intraday sleeves (realised measures, microstructure) | Extended paper trading; simulated vs realised fills compared |
-| 9 | `s7_monitoring` lifecycle and small live capital | Hard limits tested end to end |
+| `test_batch_01_foundation` | Package import, config loading, logging, run IDs and manifest. | Configuration errors are caught and a manifest is produced. |
+| `test_batch_02_data_extraction` | LSEG connector mocks, HFD/LFD transformations, missing data, timestamps and corporate actions. | Schema and point-in-time tests pass; missing or stale data is flagged. |
+| `test_batch_03_universe_selection` | Hard gates, scoring direction, category weighting, archetypes and frozen membership. | Same inputs and configuration produce the same universe and reason codes. |
+| `test_batch_04_forecasting_validation` | Forecast contracts, model adapters, walk-forward splits, calibration and eligibility. | No future-data leakage; invalid or unvalidated forecasts cannot enter combination. |
+| `test_batch_05_portfolio_sizing_safety` | Covariance inputs, optimisation constraints, Kelly cap, leverage and hard limits. | Invalid, infeasible or over-limit portfolios are rejected or safely constrained. |
+| `test_batch_06_execution_simulation` | Order intents, costs, fills, slippage, partial fills and reconciliation. | Simulated fills reconcile and prohibited orders are blocked. |
+| `test_batch_07_monitoring_end_to_end` | Orchestrator, plot compiler, run manifest, diagnostics and narrative report. | A full test run produces traceable artifacts and truthful PASS/DEGRADED/BLOCKED statuses. |
+
+A passing test batch establishes only the behaviour covered by that test. It does not establish that a strategy is profitable or ready for live trading.
+
+## 8. Windows and VS Code setup
+
+From PowerShell, open the repository root in VS Code and create a project virtual environment:
+
+```powershell
+cd path\to\AQP-PYTHON
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e .
+pip install -r requirements-dev.txt
+code .
+```
+
+If PowerShell blocks activation, use the terminal profile or activation approach permitted by your Windows policy; do not weaken system-wide execution policy just for this project. Configure VS Code to use `AQP-PYTHON\.venv\Scripts\python.exe` as the interpreter.
+
+Example run commands once the CLI has been implemented:
+
+```powershell
+python -m aqp_python.cli validate-config --config configs/aqp_pipeline.yaml
+python -m aqp_python.cli run --config configs/aqp_pipeline.yaml --mode research
+pytest
+```
+
+These are the intended command interfaces; they will work only after the package, CLI and dependencies have been implemented.
+
+## 9. Data, credentials and Git hygiene
+
+- Keep LSEG credentials, API secrets and private tokens outside source control. Use environment variables or an approved secret store; `.env.example` contains placeholder names only.
+- Add raw, intermediate and large generated datasets to `.gitignore` unless a specific small, licensed, sanitised fixture is deliberately approved for version control.
+- Do not commit `.venv/`, caches, logs, large plot collections or run outputs by default.
+- Use `.gitkeep` only when an otherwise-empty directory must appear in Git; it does not make hidden files visible or cause Git to track ignored files.
+- Preserve data provider licences and terms. A successful LSEG connection does not itself permit redistribution of downloaded data.
+- Pin and record dependency versions for reproducibility. Use lock files if the project adopts a dependency manager that supports them.
+
+## 10. Python and R boundary
+
+Python coordinates the pipeline and owns the standard schemas, data contracts, run manifest, portfolio controls, compiler and reporting. R implementations belong under `r_models/` and should be called through `aqp_r_model_adapter.py` or another documented interface. Define input/output types, timeout behaviour, error handling and package requirements before integrating an R model. Do not silently translate a failed R model into a successful forecast.
+
+## 11. Implementation order
+
+1. Establish repository tooling, configuration validation, logging and run manifests.
+2. Implement Stage 00 with mocked and small approved data fixtures before relying on full LSEG extraction.
+3. Implement Stage 01 screening, score normalisation, universe versioning and rejection reasons.
+4. Define and test the forecast contract before adding the individual Stage 02 models.
+5. Add walk-forward validation and model-eligibility rules before allowing forecasts into portfolio construction.
+6. Implement portfolio constraints, sizing and independent safety tests before execution integration.
+7. Add execution simulation, monitoring, plots and structured reports.
+8. Run the seven test batches in order; only then progress from research to paper trading and any separately approved controlled deployment.
+
+## 12. Key definitions
+
+- **AQP:** Advanced Quantitative Pipeline.
+- **HFD:** High-frequency data, such as intraday observations or market data sampled at short intervals.
+- **LFD:** Low-frequency data, such as daily or other less frequent observations.
+- **Point-in-time data:** Data represented according to when it was actually available to the decision process.
+- **Research universe:** Versioned set of companies eligible for downstream analysis; not a list of automatic trades.
+- **Archetype:** A classification that routes an eligible company to relevant modelling hypotheses.
+- **Forecast eligibility:** A validated status allowing a model output to be considered by the signal-combination stage.
+- **Sleeve:** A separately configured strategy allocation, such as ASX interday or US intraday.
+- **Run manifest:** Machine-readable record of configuration, data, versions, stage statuses and output artifacts for one pipeline run.
+- **Hard limit:** A mandatory risk or operational constraint that a forecast or optimiser cannot override.
 
 ---
 
-## 9. What Is Deliberately Not in the Repository
-
-- Licensed market data, credentials or API keys (kept in the OS keychain and `data/`, both outside version control).
-- Scheduling or automation: every run is started manually.
-- Automatic order placement: the pipeline produces tickets; orders are placed by hand.
+**Repository rule:** keep this file as the navigation map. Put extended mathematics and model-specific derivations in the relevant methodology document; put executable code in `src/aqp_python/`; put tests in `tests/`; and keep generated run artifacts under `outputs/`.
