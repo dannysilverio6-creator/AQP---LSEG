@@ -1,479 +1,480 @@
-# Repository Overview — AQP-C++
+# AQP-C++ — Repository Overview
 
-**C++20 implementation of the Multi-Market Quantitative Investment Pipeline**
-
-| | |
-|---|---|
-| Methodology | `docs/quant_pipeline.md` (version 2, static universe) |
-| Language | C++20 (CMake, vcpkg) |
-| Storage | Parquet files (Apache Arrow C++) + DuckDB catalogue on local disk |
-| Sleeves | ASX interday · US interday · ASX intraday · US intraday |
-| Output | Position and leverage report + order tickets for manual placement |
-
-> **How this maps to the methodology.** Each library under `src/` corresponds to one stage of `quant_pipeline.md` and keeps its stage number (`s0_` … `s7_`). Section references in brackets (e.g. [§4.6]) point to the methodology document. The structure deliberately mirrors the Python overview, so the two can be compared module by module.
-
-> **What changes compared with Python.** C++ has no direct equivalents of `statsmodels`, `arch`, `linearmodels` or `doubleml`. Markov switching, dynamic factor models, GARCH estimation, local projections, panel regressions and the statistical tests are therefore **implemented in this repository** on top of Eigen. That is the main cost of a C++ build: more code to write and verify, in exchange for speed, determinism and a single compiled binary. Section 9 sets out how to verify these implementations.
+**Project:** Advanced Quantitative Pipeline (AQP)  
+**Repository:** `AQP-CPP`  
+**Implementation language:** C++  
+**Recommended standard:** C++20  
+**Primary development environment:** Windows + Visual Studio Code + Microsoft Visual C++ (MSVC)  
+**Build system:** CMake  
+**Status:** Target repository design — the tree below describes the intended implementation and does not mean every listed source file already exists.
 
 ---
 
-## 1. Repository Tree
+## 1. Purpose
+
+`AQP-CPP` is the native C++ implementation of the Advanced Quantitative Pipeline. It is designed to manage market-data ingestion, point-in-time data validation, company-universe formation, forecasts, portfolio construction, position sizing, execution simulation, monitoring, plots/data exports where supported, and run reporting.
+
+The repository follows the same research workflow as the AQP overview, but its pipeline logic and model implementations are written in C++. It does not rely on Python or R source files to execute the pipeline.
+
+**Language boundary:** YAML/JSON configuration, Markdown documentation, Mermaid diagrams, CMake build files, and test data are not program code. They remain appropriate in a C++ repository. This design deliberately excludes `.py` and `.R` implementation files.
+
+> **Research and trading disclaimer:** the architecture is not evidence of profitability or production readiness. Start with synthetic/sample data and research mode. Do not enable live order submission until the data, controls, broker integration, security review, and operational procedures have been independently tested and approved.
+
+## 2. Design principles
+
+1. **C++ implementation:** core pipeline stages, data contracts, calculations, orchestration, and tests use C++.
+2. **CMake-managed builds:** keep compiler and dependency setup reproducible rather than relying on IDE-only settings.
+3. **Configuration-driven runs:** YAML settings are loaded and validated by C++ code; configuration files do not execute themselves.
+4. **Point-in-time integrity:** every input should preserve event time, publication/availability time, retrieval time, source, and revision information where applicable.
+5. **Separate hard gates from scores:** a high company score cannot override failed data, tradability, or safety checks.
+6. **Separate forecasts from orders:** models produce forecasts; portfolio construction proposes weights; independent controls approve, constrain, or block order intents.
+7. **Reproducibility:** every run records code version, configuration snapshot, input lineage, universe version, model versions, random seeds where relevant, and outcome status.
+8. **Safe defaults:** research or simulation mode is the default. Live execution should require explicit deployment configuration and separate approval.
+9. **No hidden side effects:** constructing an object or including a header must not log in to a provider, download data, or submit orders.
+10. **Incremental implementation:** each stage has unit tests, integration tests, and a clearly defined input/output contract.
+
+## 3. Repository tree
 
 ```text
-AQP-C++/
-├── CMakeLists.txt                 # top-level build
-├── CMakePresets.json              # debug / release / sanitiser presets
-├── vcpkg.json                     # pinned third-party dependencies
+AQP-CPP/
+├── CPP REPOSITORY OVERVIEW.md
 ├── README.md
-├── C++ REPOSITORY OVERVIEW.md
-├── configs/                       # every threshold lives here, none in code
-│   ├── base.yaml
-│   ├── sleeves/{asx,us}_{interday,intraday}.yaml
-│   ├── universe.yaml              # formation rules + safety exits [§4]
-│   ├── models.yaml
-│   ├── validation.yaml            # folds, purge/embargo, G3 criteria [§10]
-│   ├── risk.yaml                  # covariance, ES engines, stress, G4 [§11]
-│   ├── leverage.yaml              # Kelly fraction, vol target, DD_max, G5 [§12]
-│   ├── execution.yaml             # cost model, participation caps, hard limits [§13]
-│   └── data_sources.yaml          # endpoints and credential *references* (never secrets)
-├── data/                          # NOT committed (in .gitignore)
-│   ├── raw/  pit/  market/  knowledge/
-│   ├── universe/                  # frozen universe versions U_{T0}, U_{T1}, …
-│   ├── derived/  runs/{run_id}/
-│   └── catalog.duckdb
-├── include/quantpipe/             # public headers, one folder per stage
-│   ├── core/  s0_data/  s0_knowledge/  s1_universe/
-│   ├── s2_models/  s2e_combine/  s3_risk/  s4_portfolio/
-│   ├── s5_leverage/  s6_execution/  s7_monitoring/  backtest/
-│   └── math/                      # shared numerical building blocks
-├── src/                           # implementations, same layout as include/
-│   └── … one static library per stage (qp_core, qp_s0_data, …)
-├── apps/
-│   └── quantpipe_cli.cpp          # command-line entry point
+├── CMakeLists.txt
+├── CMakePresets.json
+├── CMakeUserPresets.json.example
+├── vcpkg.json
+├── vcpkg-configuration.json
+├── .gitignore
+├── .gitattributes
+├── .clang-format
+├── .clang-tidy
+├── LICENSE
+│
+├── configs/
+│   ├── aqp_pipeline.yaml
+│   ├── aqp_markets.yaml
+│   ├── aqp_data_sources.yaml
+│   ├── aqp_universe_rules.yaml
+│   ├── aqp_forecast_models.yaml
+│   ├── aqp_validation.yaml
+│   ├── aqp_risk_limits.yaml
+│   ├── aqp_execution.yaml
+│   └── aqp_reporting.yaml
+│
+├── docs/
+│   ├── architecture/
+│   │   ├── aqp_cpp_system_overview.mmd
+│   │   ├── aqp_cpp_stage_00_data.mmd
+│   │   ├── aqp_cpp_stage_01_universe.mmd
+│   │   ├── aqp_cpp_stage_02_forecasting.mmd
+│   │   ├── aqp_cpp_stage_02e_validation.mmd
+│   │   ├── aqp_cpp_stages_03_04_portfolio.mmd
+│   │   ├── aqp_cpp_stage_05_sizing.mmd
+│   │   ├── aqp_cpp_stage_06_execution.mmd
+│   │   ├── aqp_cpp_stage_07_monitoring.mmd
+│   │   └── aqp_cpp_safety_controls.mmd
+│   ├── decisions/
+│   │   └── README.md
+│   └── testing/
+│       └── aqp_cpp_test_strategy.md
+│
+├── include/
+│   └── aqp_cpp/
+│       ├── aqp_version.hpp
+│       ├── core/
+│       │   ├── aqp_error.hpp
+│       │   ├── aqp_result.hpp
+│       │   ├── aqp_types.hpp
+│       │   ├── aqp_timestamp.hpp
+│       │   ├── aqp_run_context.hpp
+│       │   └── aqp_data_contracts.hpp
+│       ├── config/
+│       │   ├── aqp_config.hpp
+│       │   ├── aqp_config_loader.hpp
+│       │   └── aqp_config_validator.hpp
+│       ├── connectors/
+│       │   ├── aqp_market_data_source.hpp
+│       │   ├── aqp_news_data_source.hpp
+│       │   └── lseg/
+│       │       ├── aqp_lseg_session.hpp
+│       │       ├── aqp_lseg_instruments.hpp
+│       │       └── aqp_lseg_fields.hpp
+│       ├── storage/
+│       │   ├── aqp_file_store.hpp
+│       │   ├── aqp_parquet_store.hpp
+│       │   └── aqp_run_manifest.hpp
+│       ├── stages/
+│       │   ├── stage_00_data/
+│       │   │   ├── aqp_data_extractor.hpp
+│       │   │   ├── aqp_data_normalizer.hpp
+│       │   │   └── aqp_data_quality.hpp
+│       │   ├── stage_01_universe/
+│       │   │   ├── aqp_universe_builder.hpp
+│       │   │   ├── aqp_company_filters.hpp
+│       │   │   ├── aqp_factor_scorer.hpp
+│       │   │   └── aqp_archetype_classifier.hpp
+│       │   ├── stage_02_forecasting/
+│       │   │   ├── aqp_forecast_contract.hpp
+│       │   │   ├── financial/aqp_financial_models.hpp
+│       │   │   ├── macro/aqp_macro_models.hpp
+│       │   │   ├── micro/aqp_micro_models.hpp
+│       │   │   └── news/aqp_news_models.hpp
+│       │   ├── stage_02e_validation/
+│       │   │   ├── aqp_walk_forward.hpp
+│       │   │   ├── aqp_forecast_calibration.hpp
+│       │   │   └── aqp_model_eligibility.hpp
+│       │   ├── stages_03_04_portfolio/
+│       │   │   ├── aqp_covariance.hpp
+│       │   │   ├── aqp_stress_testing.hpp
+│       │   │   ├── aqp_portfolio_optimizer.hpp
+│       │   │   └── aqp_sleeve_allocator.hpp
+│       │   ├── stage_05_sizing/
+│       │   │   ├── aqp_position_sizer.hpp
+│       │   │   ├── aqp_kelly_cap.hpp
+│       │   │   └── aqp_leverage_rules.hpp
+│       │   ├── stage_06_execution/
+│       │   │   ├── aqp_order_intent.hpp
+│       │   │   ├── aqp_execution_simulator.hpp
+│       │   │   └── aqp_reconciliation.hpp
+│       │   └── stage_07_monitoring/
+│       │       ├── aqp_metrics.hpp
+│       │       ├── aqp_plot_data.hpp
+│       │       ├── aqp_report_generator.hpp
+│       │       └── aqp_run_monitor.hpp
+│       ├── safety/
+│       │   ├── aqp_pre_trade_gate.hpp
+│       │   ├── aqp_hard_limits.hpp
+│       │   ├── aqp_kill_switch.hpp
+│       │   └── aqp_release_approval.hpp
+│       └── orchestration/
+│           ├── aqp_pipeline.hpp
+│           ├── aqp_stage_registry.hpp
+│           └── aqp_orchestrator.hpp
+│
+├── src/
+│   ├── main.cpp
+│   ├── core/
+│   ├── config/
+│   │   ├── aqp_config_loader.cpp
+│   │   └── aqp_config_validator.cpp
+│   ├── connectors/
+│   │   ├── aqp_file_market_data_source.cpp
+│   │   ├── aqp_file_news_data_source.cpp
+│   │   └── lseg/
+│   │       ├── aqp_lseg_session.cpp
+│   │       ├── aqp_lseg_instruments.cpp
+│   │       └── aqp_lseg_fields.cpp
+│   ├── storage/
+│   ├── stages/
+│   │   ├── stage_00_data/
+│   │   ├── stage_01_universe/
+│   │   ├── stage_02_forecasting/
+│   │   │   ├── financial/
+│   │   │   ├── macro/
+│   │   │   ├── micro/
+│   │   │   └── news/
+│   │   ├── stage_02e_validation/
+│   │   ├── stages_03_04_portfolio/
+│   │   ├── stage_05_sizing/
+│   │   ├── stage_06_execution/
+│   │   └── stage_07_monitoring/
+│   ├── safety/
+│   └── orchestration/
+│       ├── aqp_pipeline.cpp
+│       ├── aqp_stage_registry.cpp
+│       └── aqp_orchestrator.cpp
+│
 ├── tests/
-│   ├── unit/                      # GoogleTest
-│   ├── reference/                 # golden values for parity checks (Section 9)
-│   ├── leakage/                   # look-ahead and survivorship tests
-│   ├── integration/               # end-to-end on synthetic data
-│   └── fixtures/                  # synthetic data generators only
-└── bench/                         # Google Benchmark micro-benchmarks
+│   ├── CMakeLists.txt
+│   ├── unit/
+│   │   ├── core/
+│   │   ├── config/
+│   │   ├── stages/
+│   │   └── safety/
+│   ├── integration/
+│   │   ├── aqp_config_integration_test.cpp
+│   │   ├── aqp_file_data_integration_test.cpp
+│   │   └── aqp_pipeline_smoke_test.cpp
+│   ├── fixtures/
+│   │   ├── market_data/
+│   │   ├── company_fundamentals/
+│   │   ├── news_events/
+│   │   └── expected_outputs/
+│   └── test_batches/
+│       ├── batch_01_repository_and_build/
+│       ├── batch_02_config_and_contracts/
+│       ├── batch_03_data_and_connectors/
+│       ├── batch_04_universe_selection/
+│       ├── batch_05_forecasts_and_validation/
+│       ├── batch_06_portfolio_sizing_safety/
+│       └── batch_07_end_to_end_reporting/
+│
+├── data/
+│   ├── README.md
+│   ├── sample/
+│   └── .gitkeep
+│
+├── outputs/
+│   ├── README.md
+│   ├── runs/.gitkeep
+│   ├── plots/.gitkeep
+│   └── reports/.gitkeep
+│
+└── build/                         # Generated by CMake; do not commit
 ```
 
-Each stage is built as its own static library. Dependencies only point **downstream** (e.g. `qp_s2_models` may link `qp_core` and `qp_math` but never `qp_s1_universe`), and CMake enforces this.
+The tree is a target layout. Some modules may be combined or split during implementation; avoid creating empty source files merely to make the tree look complete.
 
----
+## 4. Root-level build and development files
 
-## 2. Library-by-Library Description
-
-### 2.1 `math/` — numerical building blocks (shared by every stage)
-
-Because there is no C++ `statsmodels`, the reusable numerics live here and are tested independently.
-
-| Header | Contents |
+| File | Purpose |
 |---|---|
-| `linalg.hpp` | Eigen wrappers: robust Cholesky, pseudo-inverse, nearest positive-definite matrix |
-| `optimize.hpp` | L-BFGS-B (bounded MLE) via LBFGSpp; Nelder–Mead fallback; numerical-gradient checker |
-| `distributions.hpp` | Normal, standardised Student-$t$, GPD, gamma; log-densities, CDFs, quantiles (Boost.Math) |
-| `regression.hpp` | OLS, WLS, ridge, quantile regression (iteratively reweighted / LP); HAC (Newey–West) and cluster-robust standard errors |
-| `kalman.hpp` | Generic linear-Gaussian Kalman filter with missing observations (ragged edge); **filter only, no smoother in the production path** |
-| `bootstrap.hpp` | Stationary bootstrap indices; one RNG stream per replicate |
-| `robust.hpp` | Median, MAD, winsorising, rank-Gauss transform |
-| `rng.hpp` | xoshiro256** streams seeded from the run manifest |
-| `parallel.hpp` | `parallel_for` over independent work items (TBB or OpenMP); results independent of thread count |
+| `CMakeLists.txt` | Declares the C++ project, source targets, compiler standard, dependencies, executable and test targets. |
+| `CMakePresets.json` | Defines repeatable configure, build and test presets, including Windows/MSVC Debug and Release builds. |
+| `CMakeUserPresets.json.example` | Template for local paths or machine-specific options; the actual private `CMakeUserPresets.json` should normally be ignored by Git. |
+| `vcpkg.json` | Declares third-party C++ dependencies for reproducible package installation when using vcpkg. |
+| `vcpkg-configuration.json` | Pins or configures the vcpkg baseline and registries where needed. |
+| `.gitignore` | Excludes build output, IDE state, secrets, caches, raw licensed data and generated results. |
+| `.clang-format` | Defines consistent C++ formatting. |
+| `.clang-tidy` | Enables configurable static-analysis checks. |
+| `README.md` | Gives the short start guide; this overview carries the detailed repository map. |
+| `LICENSE` | Specifies project licensing once an appropriate licence has been chosen. |
 
-### 2.2 `core/` — shared infrastructure
+## 5. Configuration files
 
-| Module | Responsibility |
+Configuration files hold run settings; they are data files and do not execute by themselves. C++ code loads, validates, snapshots and passes the values to the relevant stage.
+
+| File | Responsibility |
 |---|---|
-| `config` | Loads and validates YAML (yaml-cpp) into typed structs; merges base and sleeve files |
-| `types` | `ForecastDist`, `UniverseVersion`, `GateResult`, `Position`, `Ticket` (Section 3) |
-| `pit` | The **only** read path for model code: `pit::read(dataset, as_of)` [§3.1] |
-| `calendar` | ASX and US trading calendars, sessions, holidays; Sydney ↔ UTC (`std::chrono` time zones) |
-| `store` | Arrow/Parquet I/O, DuckDB views, atomic writes (temp file + rename), xxHash checksums |
-| `gates` | Common gate interface and reporting for G1–G7 [§2.2] |
-| `manifest` | Run ID, config hash, input hashes, gate outcomes → `runs/{run_id}/manifest.json` |
-| `registry` | Model registry and **experiment trial counter** for the deflated Sharpe ratio [§10.2] |
-| `log` | Structured logging (spdlog, JSON lines) |
+| `configs/aqp_pipeline.yaml` | Run mode, enabled stages, date range, output root and global parameters. |
+| `configs/aqp_markets.yaml` | ASX/US definitions, timezone names, exchange calendars and session settings. |
+| `configs/aqp_data_sources.yaml` | Data providers, file/API modes, frequencies, request controls and retry settings. Never store API secrets directly in the tracked file. |
+| `configs/aqp_universe_rules.yaml` | Stage 1 exclusion gates, factor definitions, category weights and archetype rules. |
+| `configs/aqp_forecast_models.yaml` | Model enablement, horizons, estimator settings and common output requirements. |
+| `configs/aqp_validation.yaml` | Walk-forward design, calibration checks, out-of-sample metrics and eligibility criteria. |
+| `configs/aqp_risk_limits.yaml` | Position, concentration, drawdown, exposure, leverage and portfolio-risk constraints. |
+| `configs/aqp_execution.yaml` | Simulation settings, fees, spread/slippage assumptions and permitted execution mode. |
+| `configs/aqp_reporting.yaml` | Output formats, diagnostics, plot requests and narrative-report controls. |
 
-### 2.3 `s0_data/` — point-in-time data [§3]
+Suggested C++ configuration components:
 
-| Module | Responsibility |
-|---|---|
-| `sources/data_source.hpp` | `DataSource` interface; every provider implements it |
-| `sources/lseg_rest` | LSEG Data Platform REST adapter (HTTP via libcurl, JSON via nlohmann/json); rate limiter and request ledger |
-| `sources/parquet_drop` | Reads Parquet files produced by an external ingest tool (see note below) |
-| `sources/us_market` | US provider adapter (provider still to be chosen) |
-| `sources/macro` | Macro series with vintages (e.g. ALFRED, RBA, ABS) over REST |
-| `sources/news` | Wire and exchange announcements with publication timestamps |
-| `ingest` | Incremental loads with watermarks; append-only `raw/` |
-| `pit_store` | Bitemporal merge: closes old versions, opens new ones, never updates |
-| `knowledge_time` | Knowledge-time rules per data type |
-| `corporate_actions` | Adjustment factors, total-return series, tradability flags [§3.3] |
-| `quality` | **◆ G2** firewall: BLOCK / QUARANTINE / WARN [§3.4] |
+- `aqp_config_loader`: reads the selected YAML files using a C++ YAML library.
+- `aqp_config_validator`: checks schema, ranges, cross-file consistency and missing mandatory settings.
+- `aqp_config`: stores typed, validated settings passed to each component.
 
-> **Data-access note.** LSEG's Workspace **Data Library** is published for Python, .NET and TypeScript rather than C++ (check LSEG's current developer documentation). A C++ build therefore has two options: call the LSEG Data Platform **REST** endpoints directly with a platform session (if your licence includes one), or let a small external tool write Parquet files into `data/raw/` that the `parquet_drop` adapter reads. Both feed the same PIT store, so nothing downstream changes.
+The orchestrator should stop before any market-data requests or portfolio calculations if required configuration is missing or invalid. Each run should save a configuration snapshot and its content hash. Safety limits must also be enforced in C++ safety code; a YAML setting must not be able to bypass independent hard-coded invariants or deployment approvals.
 
-### 2.4 `s0_knowledge/` — company knowledge layer [§3.5]
+## 6. C++ module responsibilities
 
-| Module | Responsibility |
-|---|---|
-| `stickers` | Versioned revenue and cost exposure vectors $\mathbf e^{\mathrm{rev}}_i$, $\mathbf e^{\mathrm{cost}}_i$ |
-| `labels` | Market, industry, venue, currency labels |
-| `peers` | Peer clusters from return correlations (hierarchical clustering) and text embeddings |
-| `graph` | Relationship graph $W$ as an Eigen sparse matrix; spectral-radius check (power iteration) |
-| `extract_relations` | LLM-assisted relationship extraction over HTTP, validated against a JSON schema |
+### Core and contracts
 
-### 2.5 `s1_universe/` — archetype builder, static universe [§4]
+`include/aqp_cpp/core/` defines shared types and interfaces: timestamps, run context, errors/results, instrument identifiers, market observations, forecast records, portfolio proposals, order intents and data-lineage metadata. Put shared contracts here rather than allowing every stage to invent its own field names.
 
-| Module | Responsibility |
-|---|---|
-| `survival` | Merton DD (2-equation solve), Altman Z, cover, leverage, runway, F-score [§4.2] |
-| `liquidity` | MDTV, Amihud, Roll spread, zero-volume ratio, quoted spread [§4.3] |
-| `archetypes` | Archetype fit tests; HAR forecastability; recursive-residual CUSUM [§4.4] |
-| `scoring` | Robust sector-neutral z-scores, composite score [§4.5] |
-| `formation` | **◆ G1 at formation**: the only code that constructs a `UniverseVersion` |
-| `safety_exits` | **◆ G1 after formation**: `EXIT-DIST`, `EXIT-DLST`, `EXIT-SUSP`, `EXIT-TKO`, `EXIT-LIQ` only [§4.6] |
-| `tiers` | One-off data-depth tier assignment [§4.7] |
+Use explicit units and semantics. A return, a price, a percentage, a basis-point value and a variance must not be represented as interchangeable unlabelled `double` values when a stronger type can prevent mistakes. Document timestamp timezone and whether intervals are open or closed.
 
-**Static-universe rules enforced by the type system and build:**
+### Connectors
 
-- `UniverseVersion` has a private constructor; `formation` is declared its only `friend`.
-- `safety_exits` returns a new `UniverseVersion` with members removed; there is no member function that adds a name.
-- `qp_s1_universe` exposes only `UniverseVersion` and `safety_exits` to downstream libraries; `scoring` and `formation` headers are private to the target, so stages 2–7 cannot include them.
-- Re-formation writes a new versioned file and is triggered only by the `form-universe` command.
+`connectors/` isolates external systems from modelling code. Start with a file-backed connector using deterministic sample fixtures; this allows development without credentials or live data access. Keep any future LSEG adapter behind an interface such as `MarketDataSource`.
 
-### 2.6 `s2_models/` — forecast layers [§5–9]
+**LSEG note:** do not assume that a supported native C++ Workspace SDK or an entitlement is available. The concrete integration must use an officially supported interface that your account is allowed to access, or a licensed export/file workflow. If a supported HTTP/REST endpoint is used, isolate authentication, networking, rate limits, retry policy and response parsing in the connector. Do not embed credentials in source code, YAML committed to Git, or logs. A connector is not implemented just because its header exists.
+
+### Stage 00 — Data ingestion and quality
+
+Extract or read market/company/news data, normalise identifiers, validate timestamps, handle corporate actions, check duplicates and missing observations, and preserve source and availability metadata. Keep raw source records immutable where practical and write normalised data to a separate location.
+
+### Stage 01 — Company universe
+
+Apply mandatory eligibility gates first, then calculate category-level company scores, rank candidates and assign strategy archetypes. Persist the formation date, universe version, factor values, component scores and exclusion reason codes. A high composite score must never compensate for a failed hard gate.
+
+### Stage 02 — Forecasting
+
+Maintain one common forecast contract across four families:
+
+- **Financial:** company fundamentals and company-level return/risk estimates.
+- **Macro:** economic series, macro states and exposure/sensitivity estimates.
+- **Micro/market:** interday price/volume features and intraday market-microstructure signals.
+- **News:** event extraction, novelty, event classification and calibrated event-response estimates.
+
+Each result should identify its instrument, forecast horizon, as-of time, model/version, expected return or distributional outputs where appropriate, uncertainty, data lineage, and validity status. A news model may call an externally hosted service only through an explicit C++ client and a configured provider; it must not silently add an untracked dependency.
+
+### Stage 02E — Forecast validation
+
+Use chronological or walk-forward splits, with no future information in training, feature generation or validation. Test calibration and economic relevance after realistic costs. Record sample sizes, folds, trial counts and model status. Only eligible forecast records should be passed to portfolio construction.
+
+### Stages 03–04 — Portfolio and sleeve allocation
+
+Estimate covariance and downside/stress measures, build constrained portfolio proposals, include transaction-cost/liquidity assumptions, and allocate risk budgets to ASX interday, US interday, ASX intraday and US intraday sleeves. Confirm solver status, constraint residuals and feasibility; do not assume an optimiser succeeded because it returned a vector.
+
+### Stage 05 — Position sizing and leverage
+
+Convert approved target weights into position proposals using volatility, uncertainty, liquidity, margin and drawdown restrictions. Keep fractional Kelly as a capped research input, not an automatic authority to use leverage. Enforce all applicable limits and prevent negative or non-finite position sizes. Record the binding constraint and calculation inputs.
+
+### Stage 06 — Execution
+
+The initial version should simulate orders, fees, spreads, impact, slippage and fills. Keep broker-facing order submission disabled unless an explicit, separately approved live mode is implemented. Reconcile intended orders with simulated or broker-reported fills and record discrepancies.
+
+### Stage 07 — Monitoring and reporting
+
+Collect run metrics, diagnostics, plots and structured outputs, then generate a narrative report from those stored results. If using a remote AI/LLM service, label it as an external dependency and supply only authorised data. The report must not invent numbers, claim that a failed run succeeded, or alter risk decisions. Store the input metrics and report text for auditability.
+
+### Independent safety layer
+
+`src/safety/` is designed to sit outside the forecast-to-order path as a blocking control. It should validate approved mode, data freshness, trading permissions, limits, position/exposure calculations and kill-switch state immediately before any order can be released. A failure blocks the action and records a reason. Restart after a kill-switch event should require an explicit defined reset and approval process.
+
+## 7. File naming and C++ conventions
+
+- Repository directory: `AQP-CPP`.
+- Public headers: `include/aqp_cpp/.../*.hpp`.
+- Implementations: `src/.../*.cpp`.
+- Project-specific file prefix: `aqp_` for named modules and components.
+- Namespace: `aqp` (use sub-namespaces only when there is a clear ownership boundary).
+- Types: `PascalCase`, for example `RunContext` and `MarketDataSource`.
+- Functions and variables: use one consistent project convention, preferably `snake_case`.
+- Constants: follow the project's documented constant naming convention consistently.
+- Header guards: use `#pragma once` consistently if that is the chosen compiler/tooling policy.
+- Keep public declarations in `.hpp` files and function definitions in `.cpp` files unless templates or other language rules make header definitions necessary.
+- Avoid giant all-in-one source files. Keep provider-specific details and third-party headers out of public interfaces where practical.
+- No Python `.py`, R `.R`, or mixed-language implementation is part of this repository design.
+
+## 8. Dependencies and build approach
+
+Use the smallest suitable dependency set and pin it through a reproducible dependency manager. Candidate libraries should be selected during implementation, after confirming licences and compatibility:
+
+- **CMake + MSVC:** configure and compile the project on Windows.
+- **vcpkg:** reproducible dependency management, if adopted.
+- **yaml-cpp:** YAML parsing, if YAML is retained.
+- **GoogleTest or Catch2:** C++ unit and integration tests; choose one initially.
+- **spdlog:** structured application logging, if adopted.
+- **fmt:** formatting, if adopted (coordinate version with any logging library).
+- **Eigen:** matrix and vector operations, if suitable for the model workload.
+- **A validated optimisation solver:** choose based on licence, numerical requirements and supported constraints; do not assume one particular solver is installed.
+- **libcurl or another supported HTTP client:** only if a permitted service/API integration requires it.
+- **Parquet/Arrow support:** optional if columnar storage is required and compatible library packages are available.
+
+These are candidate dependencies, not a statement that they are already installed or selected. Review licensing, supported compilers, security updates, ABI compatibility, and package availability before adding a dependency.
+
+## 9. Windows and VS Code build workflow
+
+Install Visual Studio Build Tools or Visual Studio with the C++ desktop development workload and a Windows SDK, plus CMake and Git. VS Code is the editor; it does not itself supply the C++ compiler. The CMake Tools extension can help select a compiler kit and run configure/build/test tasks.
+
+Once the corresponding `CMakePresets.json`, root `CMakeLists.txt`, and source files have been created, the intended command workflow is:
+
+```powershell
+# From the AQP-CPP repository root
+cmake --list-presets
+cmake --preset windows-msvc-debug
+cmake --build --preset windows-msvc-debug
+ctest --preset windows-msvc-debug
+```
+
+Those preset names are proposed conventions and will work only after matching presets have been implemented. If you configure with Visual Studio's generator, use a matching architecture such as x64 and choose Debug or Release intentionally.
+
+A typical CLI design after implementation could be:
+
+```powershell
+# Check configuration only; does not extract data or place orders
+.\build\windows-msvc-debug\aqp_cli.exe validate-config `
+  --config configs/aqp_pipeline.yaml
+
+# Run against synthetic/sample data in research mode
+.\build\windows-msvc-debug\aqp_cli.exe run `
+  --config configs/aqp_pipeline.yaml `
+  --mode research `
+  --data-source sample
+```
+
+These commands describe the intended interface and are not executable until the CLI and build targets exist. Actual binary paths depend on the CMake generator and runtime-output settings. Never put API passwords or tokens on the command line where they may appear in process listings or logs.
+
+## 10. Runtime execution sequence
+
+1. Parse CLI arguments and select the configuration path.
+2. Load configuration and validate its schema and cross-file requirements.
+3. Create a unique `run_id`, run directory, structured logger and manifest.
+4. Record source-code revision, configuration snapshot/hash, selected market/sleeve, as-of window and data source.
+5. Initialise only the connectors required for this run mode.
+6. Execute Stage 00 and fail closed if mandatory data checks fail.
+7. Form or load the explicitly versioned Stage 01 research universe.
+8. Run enabled Stage 02 forecasting models and record model/data lineage.
+9. Run Stage 02E validation and exclude ineligible outputs.
+10. Construct and validate portfolio proposals in Stages 03–04.
+11. Apply position sizing and limits in Stage 05.
+12. Pass eligible order intents through independent safety checks.
+13. Run Stage 06 execution simulation by default; live submission is unavailable unless separately implemented and approved.
+14. Run Stage 07 monitoring, plots, structured metrics and the narrative report.
+15. Finalise the run manifest with `PASS`, `DEGRADED` or `BLOCKED` status and clear failure reasons.
+
+A later stage must not run when a required predecessor fails. Define an explicit degraded-mode policy for optional failures; never silently treat missing data or an unavailable model as a normal forecast.
+
+## 11. Output conventions
+
+Every run should write to a unique directory, for example:
 
 ```text
-s2_models/
-├── forecast_model.hpp     # ForecastModel concept, quantile grid, pinball/CRPS
-├── targets                # excess-return targets with label_end [§5.2]
-├── features/              # market, fundamental, in-fold transforms
-├── financial/             # §6
-│   ├── baselines          # random walk, historical mean, factor model, EWMA
-│   ├── elastic_net        # coordinate descent with warm starts
-│   ├── gbm_quantile       # LightGBM C API, quantile objective, monotone constraints
-│   ├── quantile_forest    # in-house quantile random forest
-│   ├── garch              # GJR-GARCH-t and EGARCH: NLL + analytic gradient, L-BFGS-B
-│   ├── har                # HAR-RV(-J) by OLS
-│   ├── hazard             # discrete-time logistic hazard → p_dist
-│   └── state_space        # Kalman time-varying betas (filtered only)
-├── macro/                 # §7
-│   ├── dfm                # dynamic factor model, EM + Kalman, ragged edge
-│   ├── markov_switching   # Hamilton filter, EM estimation → π_t(k)
-│   ├── midas              # exponential Almon weights, NLS
-│   ├── bvar               # Minnesota-prior BVAR (closed-form posterior)
-│   ├── exposure           # sticker-weighted company macro factor
-│   ├── sensitivities      # empirical-Bayes shrinkage toward sticker prior
-│   ├── events             # standardised release surprises
-│   ├── local_projections  # per-horizon OLS with Newey–West bands
-│   └── fx                 # net FX exposure from stickers
-├── micro/                 # §8
-│   ├── panel_fe           # two-way FE by alternating demeaning, clustered SEs
-│   ├── hierarchical       # partial pooling by market label
-│   ├── dml                # cross-fitted partially linear model
-│   ├── earnings_response  # CAR on SUE by group
-│   ├── realised           # trade cleaning, RV, BV, realised kernel, jump test
-│   └── microstructure     # Hawkes (O(n) NLL + gradient), ACD, OFI, Kyle λ
-└── news/                  # §9
-    ├── ingest             # dedupe, entity linking, credibility
-    ├── llm_client         # HTTP client to the chosen LLM API; pinned model + prompt
-    ├── schema             # JSON schema for extracted events; strict validation
-    ├── novelty            # embedding cosine novelty, priced-in check
-    ├── propagate          # sparse solve (I − δW) s = s⁰, time decay
-    └── shock_model        # calibrated logistic + quantile model
+outputs/runs/<run_id>/
+├── run_manifest.json
+├── config_snapshot/
+├── logs/
+├── data_quality/
+├── universe/
+├── forecasts/
+├── validation/
+├── portfolio/
+├── sizing/
+├── execution_simulation/
+├── diagnostics/
+├── plots/
+└── reports/
+    ├── run_summary.json
+    └── aqp_run_report.md
 ```
 
-**LLM and embeddings in C++.** Extraction calls an LLM over HTTPS (libcurl) and validates responses against a JSON schema; the model name and prompt version are written to the run manifest. Embeddings come either from the same API or from a local ONNX model through ONNX Runtime's C++ API.
+The exact formats should be chosen per output contract. Keep large licensed datasets and secrets outside source control. Commit only small synthetic fixtures that are redistributable and sufficient for tests. The run manifest should reference file paths, hashes, versions, status and timestamps rather than attempting to embed all outputs into one file.
 
-### 2.7 `s2e_combine/` — validation, eligibility, combination [§10]
+## 12. Testing strategy: seven ordered batches
 
-| Module | Responsibility |
-|---|---|
-| `splits` | Purged, embargoed walk-forward folds with nested inner splits |
-| `stat_tests` | Diebold–Mariano (HLN), Giacomini–White, Hansen SPA (parallel stationary bootstrap), MCS, Romano–Wolf |
-| `overfitting` | Deflated Sharpe ratio (trial count from `core::registry`), PBO via CSCV |
-| `eligibility` | **◆ G3** criteria [§10.3] |
-| `combine` | Inverse-CRPS weights, stacking (small QP), regime weights, shrinkage to equal |
-| `conformal` | CQR and adaptive conformal |
-| `alpha_decay` | IC term structure, half-life, horizon choice |
-
-### 2.8 `s3_risk/` — risk model [§11.1–11.3]
-
-| Module | Responsibility |
-|---|---|
-| `covariance` | Ledoit–Wolf, factor model, DCC-GARCH (two-step MLE), regime mixture, cross-market lead–lag |
-| `tail` | Filtered historical simulation, GJR-t Monte Carlo with t-copula, EVT (GPD MLE); Euler ES contributions |
-| `risk_backtest` | Kupiec, Christoffersen, Acerbi–Székely |
-| `stress` | Stress library incl. sticker-driven and graph-contagion scenarios |
-
-### 2.9 `s4_portfolio/` — optimiser and allocator [§11.4–11.5]
-
-| Module | Responsibility |
-|---|---|
-| `black_litterman` | Posterior expected returns from forecasts as views |
-| `optimiser` | Conic program: quadratic risk, linear + power-cone (3/2) costs, CVaR constraints. Solver: **Clarabel** (C/C++ interface) or **MOSEK**; OSQP if the 3/2 term is approximated piecewise-linearly |
-| `risk_limits` | **◆ G4** post-optimisation checks |
-| `allocator` | Risk budgeting across sleeves (Newton iteration on equal/target risk contributions) |
-
-### 2.10 `s5_leverage/` — leverage, decisions, report [§12]
-
-| Module | Responsibility |
-|---|---|
-| `kelly` | Uncertainty-adjusted fractional Kelly cap |
-| `leverage` | Vol target, Kelly, policy cap, margin headroom, drawdown multiplier; **◆ G5** |
-| `decision` | State machine, no-trade band, invalidation conditions |
-| `governance` | **◆ G6** NO-TRADE rule sets |
-| `report` | Report in Markdown/HTML (inja templates), CSV and JSON; XLSX via libxlsxwriter |
-
-### 2.11 `s6_execution/` — execution modelling [§13.1–13.2]
-
-| Module | Responsibility |
-|---|---|
-| `cost_model` | Spread + square-root impact + commission; recalibration from fills |
-| `schedule` | Almgren–Chriss trajectory; auction vs VWAP |
-| `tickets` | Order tickets for **manual** placement |
-| `fills` | Fill import; implementation shortfall |
-| `hard_limits` | Loss, drawdown, divergence, caps — linked against `qp_core` only, never against model libraries |
-
-### 2.12 `s7_monitoring/` and `backtest/`
-
-| Module | Responsibility |
-|---|---|
-| `drift` | PSI, KS, Page–Hinkley, coverage, alpha-decay alarms |
-| `recalibration` | Trigger → action policy |
-| `lifecycle` | Candidate → shadow → challenger → champion; **◆ G7** |
-| `attribution` | Stage, layer, Brinson–Fachler, factor, execution |
-| `backtest/engine` | Event-driven simulator calling the same `s4`–`s6` code; next-session fills, participation caps, lots, delisting haircut; universe formed at the backtest start date |
-
----
-
-## 3. Key Interfaces
-
-### 3.1 Forecast distribution
-
-```cpp
-namespace qp {
-
-inline constexpr std::array<double, 11> kTauGrid{
-    0.01, 0.025, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.975, 0.99};
-
-struct ForecastDist {
-    std::string model_id;                 // "financial/gbm_quantile@1.2.0"
-    std::string sleeve;                   // "asx_interday"
-    Timestamp   as_of;                    // decision time t
-    int         horizon;                  // h, sessions
-    std::vector<SecId> sec_ids;           // n
-    Eigen::Matrix<double, Eigen::Dynamic, kTauGrid.size(),
-                  Eigen::RowMajor> q;     // n × |T|, monotone per row
-    Timestamp   label_end;                // used for purging
-};
-
-}  // namespace qp
-```
-
-### 3.2 Forecast model concept
-
-```cpp
-template <class M>
-concept ForecastModel = requires(M m, const FeaturePanel& x,
-                                 const TargetPanel& y, Timestamp t, int h) {
-    { m.id() }                  -> std::convertible_to<std::string_view>;
-    { m.layer() }               -> std::same_as<Layer>;      // Financial, Macro, Micro, News
-    { m.fit(x, y) }             -> std::same_as<FitReport>;
-    { m.predict(x, t, h) }      -> std::same_as<ForecastDist>;
-    { m.diagnostics() }         -> std::same_as<Diagnostics>; // convergence, stability → G3
-};
-```
-
-At runtime, models are held in a type-erased `AnyForecastModel` wrapper so the registry can store all four layers in one container.
-
-### 3.3 Frozen universe
-
-```cpp
-class UniverseVersion {
-public:
-    const std::string& sleeve() const noexcept;
-    Timestamp formation_date() const noexcept;
-    std::span<const SecId> members() const noexcept;
-    std::vector<SecId> active(Timestamp as_of) const;      // never adds names
-    std::optional<ExitRecord> exit_of(const SecId&) const;
-
-private:
-    UniverseVersion(/* built only by formation */);
-    friend class Formation;                                  // sole creator
-    friend UniverseVersion apply_safety_exits(const UniverseVersion&,
-                                              const SafetyExitInputs&, Timestamp);
-    // members, archetypes, tiers, rejection reasons, exits (all immutable)
-};
-```
-
-### 3.4 Point-in-time read
-
-```cpp
-auto table = pit::read("fundamentals", {.as_of = t,
-                                        .fields = {"eps", "ebit"},
-                                        .sec_ids = universe.active(t)});
-```
-
-Raw tables are not exposed by any public header; a leakage test inserts "future-poison" rows and fails if any reach a model input.
-
----
-
-## 4. Configuration
-
-The YAML files are **identical in schema** to the Python version, so a configuration can be shared between the two implementations. The key file:
-
-```yaml
-# configs/universe.yaml
-universe:
-  mode: static
-  formation:
-    admission_rank_min: 0.50
-    min_size: {asx_interday: 60, us_interday: 80, asx_intraday: 20, us_intraday: 30}
-    max_size: {asx_interday: 200, us_interday: 300, asx_intraday: 40, us_intraday: 60}
-    history_min_days: 252
-  survival: {distress_prob_max: 0.05, icr_min: 2.0, nd_ebitda_max: 4.0,
-             runway_min_quarters: 4, altman_z_min: 1.8}
-  liquidity: {mdtv_min: {AUD: 5.0e5, USD: 2.0e6}, zero_volume_max: 0.05,
-              intraday_spread_max_bps: 10}
-  safety_exits:
-    distress_prob_max: 0.05
-    suspension_max_sessions: 5
-    liquidity_collapse: {mdtv_fraction_of_floor: 0.5, sessions: 60}
-    replace_exited: false
-  reformation: {trigger: manual, advisory_min_fraction: 0.70}
-```
-
----
-
-## 5. Dependencies (managed by vcpkg)
-
-| Area | Libraries |
-|---|---|
-| Linear algebra | **Eigen 3** (dense and sparse) |
-| Special functions, distributions | **Boost.Math** |
-| Optimisation (MLE) | **LBFGSpp** (header-only L-BFGS-B) |
-| Convex optimisation | **Clarabel** (C/C++ interface) or **MOSEK**; **OSQP** as a QP fallback |
-| Gradient boosting | **LightGBM** C API |
-| Columnar data | **Apache Arrow / Parquet** C++ |
-| Query catalogue | **DuckDB** C++ API |
-| Parallelism | **oneTBB** (or OpenMP) |
-| HTTP and JSON | **libcurl**, **nlohmann/json**, **json-schema-validator** |
-| Embeddings (optional, local) | **ONNX Runtime** C++ API |
-| Config, CLI, logging | **yaml-cpp**, **CLI11**, **spdlog**, **fmt** |
-| Dates and calendars | C++20 `std::chrono` with time zones (or Howard Hinnant's `date` on older toolchains) |
-| Hashing | **xxHash** |
-| Reporting | **inja** (templates), **libxlsxwriter** |
-| Testing, benchmarks | **GoogleTest**, **RapidCheck** (property tests), **Google Benchmark** |
-
-### Build settings for reproducible numerics
-
-```cmake
-target_compile_features(qp_core PUBLIC cxx_std_20)
-# Deterministic floating point: no fast-math, no fused multiply-add contraction,
-# no host-specific instruction sets, so results match across machines.
-target_compile_options(qp_core PUBLIC
-    $<$<CXX_COMPILER_ID:GNU,Clang>:-O3 -ffp-contract=off -fno-fast-math>
-    $<$<CXX_COMPILER_ID:MSVC>:/O2 /fp:precise>)
-```
-
-Every random draw comes from a per-work-item RNG stream, so results are bitwise identical regardless of thread count.
-
----
-
-## 6. Building and Running
-
-```bash
-# 1. Configure and build (vcpkg toolchain picked up by the preset)
-cmake --preset release
-cmake --build --preset release -j
-
-# 2. Run the test suite
-ctest --preset release
-
-# 3. Load or refresh data up to a date
-./build/release/quantpipe ingest --sleeve asx_interday --as-of 2026-10-14
-
-# 4. Build the knowledge layer
-./build/release/quantpipe knowledge --as-of 2026-10-14
-
-# 5. Form the static universe ONCE per sleeve
-./build/release/quantpipe form-universe --sleeve asx_interday --as-of 2026-10-14
-
-# 6. Daily run for one sleeve, or all sleeves with the allocator
-./build/release/quantpipe run --sleeve asx_interday --as-of 2026-10-14
-./build/release/quantpipe run --all --as-of 2026-10-14
-
-# 7. Backtest (forms its own universe at the start date)
-./build/release/quantpipe backtest --sleeve asx_interday --start 2016-01-04 --end 2026-09-30
-```
-
-All runs are started manually. The order of operations inside `run` is the same as the Python version:
-
-```text
-load configs + UniverseVersion
- → s0_data: ingest, PIT merge, ◆ G2
- → s1_universe::apply_safety_exits (removals only)
- → s2_models → ForecastDist per layer
- → s2e_combine: ◆ G3 → combine → conformal → horizon
- → s3_risk → s4_portfolio: Black–Litterman → optimiser → ◆ G4 → allocator
- → s5_leverage: leverage → ◆ G5 → decisions → ◆ G6
- → s6_execution: tickets (manual placement), hard limits
- → s7_monitoring: drift and attribution
- → report + manifest in data/runs/{run_id}/
-```
-
----
-
-## 7. Testing Strategy
-
-| Test type | What it checks |
-|---|---|
-| Unit | Each formula against hand-worked values (the methodology's worked examples) |
-| Gradient checks | Every analytic gradient (GARCH, Hawkes, hazard, DCC) against central finite differences |
-| Reference parity | Estimates against golden values (Section 9) |
-| Leakage | Future-poison rows, one-day feature shift, restatements invisible before knowledge time |
-| Survivorship | Backtest universes include later-delisted names |
-| Static universe | Compile-time: downstream targets cannot include `formation`/`scoring`; runtime: no path adds a member |
-| Gates | Pass and fail branches of G1–G7 on synthetic inputs |
-| Determinism | Identical output hashes across runs and across 1 vs N threads |
-| Sanitisers | Full test suite under AddressSanitizer and UndefinedBehaviorSanitizer |
-| Property tests | Invariants such as monotone quantiles, weights summing to 1, PSD covariance |
-
----
-
-## 8. Suggested Build Order
-
-| Phase | Scope | Done when |
+| Batch | Main objective | Pass condition |
 |---|---|---|
-| 1 | `math`, `core`, Parquet/DuckDB I/O, PIT store, G2 | 20 consecutive days ingested with G2 green and identical hashes on re-run |
-| 2 | `s0_knowledge`, `s1_universe`; formation of ASX interday | Formation reproducible; safety exits tested on historical delistings |
-| 3 | Baselines, GARCH, HAR, elastic net, LightGBM; `s2e_combine` | Parity tests pass; G3 decisions for at least three families |
-| 4 | `s3_risk`, `s4_portfolio`, `s5_leverage`, `s6_execution`, `backtest` | 40 paper sessions with full gate traces |
-| 5 | Macro (DFM, Markov switching, local projections) and micro (panel FE, hierarchical, DML) | Parity tests pass; layers pass G3 or documented as non-eligible |
-| 6 | US interday, FX channel, allocator | Cross-sleeve covariance validated |
-| 7 | News layer (HTTP LLM client, propagation) | Evaluated only on post-cutoff news |
-| 8 | Intraday sleeves (realised measures, Hawkes, ACD) | Extended paper trading; simulated vs realised fills |
-| 9 | `s7_monitoring` lifecycle; small live capital | Hard limits tested end to end |
+| `batch_01_repository_and_build` | CMake configure/build, compiler flags, CLI starts | Clean Debug build and basic executable smoke test succeed. |
+| `batch_02_config_and_contracts` | YAML loading, schema checks, timestamps and common data/forecast types | Valid configs load; invalid or conflicting configs fail with actionable errors. |
+| `batch_03_data_and_connectors` | File/sample ingestion, normalisation, identifier handling and data-quality gates | Fixtures produce deterministic outputs; missing/corrupt input is rejected or explicitly classified. |
+| `batch_04_universe_selection` | Hard filters, factor transformations, category score, archetypes and frozen universe records | Expected fixture companies and reason codes match independent test expectations. |
+| `batch_05_forecasts_and_validation` | Baseline models, time-aware splits, calibration and eligibility | No future-data leakage in tests; forecast contracts and eligibility decisions are reproducible. |
+| `batch_06_portfolio_sizing_safety` | Risk calculations, optimiser feasibility, Kelly/leverage caps and kill switch | Constraint violations or safety failures reliably block the proposed action. |
+| `batch_07_end_to_end_reporting` | Whole sample-data run, run manifest, plots/data exports and narrative report | End-to-end run is reproducible and report values trace back to structured run artifacts. |
 
-Phases 3 and 5 are noticeably larger than in a Python build, because the estimators are written here rather than imported.
+Use unit tests for local mathematics and validation logic, integration tests for interactions between modules, and end-to-end smoke tests for the orchestrator. Do not use live market data or broker credentials in ordinary unit tests.
+
+## 13. Minimum first milestone
+
+The first deliverable should not be an advanced trading model. It should be a small but working C++ program that can:
+
+1. Configure and build from a clean checkout using CMake.
+2. Load `configs/aqp_pipeline.yaml` and reject invalid values.
+3. Run with synthetic data and no external credentials.
+4. Create a unique run directory and manifest.
+5. Exercise one placeholder stage through the same stage interface the full pipeline will use.
+6. Emit a summary and pass the first test batch.
+
+After this foundation works, implement the stages in order and replace each placeholder only when its unit and integration tests pass.
+
+## 14. What is not included yet
+
+This overview defines the target repository and component responsibilities; it does not include the full implementations of the listed `.cpp` and `.hpp` files, the actual CMake presets, dependency lock/baseline, YAML schemas, compiled CLI, models, API authentication, broker integration, or a validated execution system. Those must be built and tested separately.
+
+The first LSEG milestone should be a file-backed/sample connector with the same interface intended for any eventual provider connector. This allows the data contracts and Stage 00 to be tested before committing to an API integration that may depend on current product support, account permissions and entitlements.
+
+## 15. Reference concepts
+
+Use official documentation during implementation to verify compiler/tool versions and APIs rather than copying commands blindly:
+
+- CMake documentation: <https://cmake.org/documentation/>
+- CMake Presets manual: <https://cmake.org/cmake/help/latest/manual/cmake-presets.7.html>
+- Microsoft C++ documentation: <https://learn.microsoft.com/en-us/cpp/>
+- VS Code C++ documentation: <https://code.visualstudio.com/docs/languages/cpp>
+- vcpkg documentation: <https://learn.microsoft.com/en-us/vcpkg/>
+- yaml-cpp project: <https://github.com/jbeder/yaml-cpp>
+- GoogleTest documentation: <https://google.github.io/googletest/>
 
 ---
 
-## 9. Verifying In-House Estimators
-
-Writing econometric estimators from scratch is where a C++ build is most likely to go wrong, so each one has three independent checks:
-
-1. **Simulation recovery.** Simulate data from known parameters (e.g. a GJR-GARCH-$t$ process, a three-state Markov-switching model, a Hawkes process with branching ratio 0.6) and confirm the estimator recovers them within sampling error over many replications.
-2. **Golden reference values.** For each estimator, `tests/reference/` stores inputs and expected outputs produced once by an established implementation (e.g. log-likelihoods and parameter estimates from standard statistical packages). C++ results must match within stated tolerances (e.g. $10^{-8}$ for likelihoods at fixed parameters).
-3. **Closed-form cases.** Cases with known answers: Kupiec statistics from the methodology's worked example, Black–Litterman with a single view, DSR from the worked example, conformal coverage on exchangeable data.
-
-An estimator is not used by any stage until all three checks pass.
-
----
-
-## 10. What Is Deliberately Not in the Repository
-
-- Licensed market data, credentials or API keys (kept in the OS keychain and `data/`, both outside version control).
-- Scheduling or automation: every run is started manually.
-- Automatic order placement: the pipeline produces tickets; orders are placed by hand.
+**Repository rule:** `AQP-CPP` contains the native C++ implementation; `aqp_` names the project's custom modules; configurations and documentation are kept separate from source; and every run begins in research/sample mode until all required tests and approvals explicitly permit anything more consequential.
