@@ -1,4 +1,4 @@
-# AQP-PYTHON — Python Repository Overview
+# AQP-PYTHON — Repository Overview
 
 **Project:** AQP — Advanced Quantitative Pipeline  
 **Repository:** `AQP-PYTHON`  
