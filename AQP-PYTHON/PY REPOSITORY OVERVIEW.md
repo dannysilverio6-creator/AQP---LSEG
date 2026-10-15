@@ -1,341 +1,233 @@
 # AQP-PYTHON — Repository Overview
 
-**Project:** AQP — Advanced Quantitative Pipeline  
+**Project:** Advanced Quantitative Pipeline (AQP)  
 **Repository:** `AQP-PYTHON`  
 **Primary language:** Python  
-**Companion language:** R, kept separate and called through controlled adapters where required  
-**Intended environment:** Windows, Visual Studio Code, Git and a project-specific Python virtual environment  
-**Status:** Proposed repository layout and implementation guide
+**Environment:** Windows, Visual Studio Code, PowerShell and a project virtual environment  
+**Status:** Proposed repository design; files listed in the tree are planned until implemented and tested.
 
----
+## 1. Purpose and design rules
 
-## 1. Purpose
+`AQP-PYTHON` contains the Python implementation for AQP: data extraction and validation, company selection, forecasting, portfolio construction, sizing, execution simulation, monitoring, plotting and run reporting.
 
-`AQP-PYTHON` contains the Python implementation of the Advanced Quantitative Pipeline (AQP). It organises the workflow from market-data extraction and company selection through forecasting, portfolio construction, position sizing, execution controls, monitoring, plotting and automated run reporting.
+The design follows these rules:
 
-This document defines the **target repository structure**. A path shown below is a planned location until its script has actually been implemented and tested. The presence of a file in this tree does not imply that the corresponding model is complete, validated or approved for live trading.
+1. **One entry point:** `aqp_python.cli` starts commands and `aqp_orchestrator.py` coordinates a pipeline run.
+2. **Configuration is not code:** YAML files define run settings; Python loads and validates them.
+3. **Point-in-time integrity:** a decision may only use information available at its timestamp.
+4. **Selection is not a trading signal:** Stage 1 forms a research universe; later stages evaluate opportunities.
+5. **Independent risk controls:** models, optimisers and reports cannot override hard limits or the kill switch.
+6. **Reproducible runs:** record the run ID, code version, configuration snapshot, data references, model versions, statuses and output paths.
+7. **Research first:** research, paper trading and live execution are separate modes with separate approval gates.
+8. **Consolidate until separation is useful:** start with a small number of cohesive modules; split them only when complexity, testing or ownership justifies it.
 
-### Core design rules
-
-1. **One orchestrator:** `aqp_orchestrator.py` coordinates pipeline stages; individual stage scripts should not independently launch the entire workflow.
-2. **One common data contract:** stage outputs use documented schemas, timestamps, identifiers, units and status fields.
-3. **Point-in-time integrity:** features and selection decisions may use only information available at the decision timestamp.
-4. **Selection is not a trading signal:** Stage 1 forms a research universe; forecasting and portfolio stages determine whether an opportunity is worth taking.
-5. **Risk controls can veto:** safety checks and hard limits cannot be overridden by a model score, optimiser or narrative report.
-6. **Reproducible runs:** every run records its run ID, code/configuration versions, data references, model status and outputs.
-7. **Research before deployment:** backtests, paper trading and live deployment have separate readiness gates.
-
-## 2. Naming convention
+## 2. Naming conventions
 
 | Item | Convention | Example |
 |---|---|---|
-| Repository folder | `AQP-PYTHON` | `AQP-PYTHON/` |
+| Repository | `AQP-PYTHON` | `AQP-PYTHON/` |
 | Python package | `aqp_python` | `src/aqp_python/` |
-| Custom Python scripts | Prefix with `aqp_` | `aqp_stage_01_universe_selection.py` |
-| Stage folders | Include AQP package path and stage number | `stages/stage_01_universe/` |
-| Configuration files | Prefix with `aqp_`, use YAML where suitable | `aqp_risk_limits.yaml` |
-| Python tests | `test_*.py` | `test_aqp_data_validator.py` |
-| Test batches | Number and name by pipeline capability | `test_batch_03_universe/` |
-| Mermaid diagrams | Prefix with `aqp_`, use `.mmd` | `aqp_stage_01_universe.mmd` |
-| Generated run folders | Use a unique run ID, not a fixed overwritten name | `outputs/runs/<run_id>/` |
+| Custom module | `aqp_` prefix | `aqp_universe_builder.py` |
+| Stage directory | Numbered stage | `stage_01_universe/` |
+| YAML configuration | `aqp_` prefix | `aqp_risk_limits.yaml` |
+| Test module | `test_*.py` | `test_aqp_safety_controls.py` |
+| Mermaid diagram | `aqp_*.mmd` | `aqp_stage_01_universe.mmd` |
+| Run output | Unique run ID | `outputs/runs/<run_id>/` |
 
-Use readable names rather than forcing `AQP` into every standard Python filename. The package and repository already identify the project; custom modules and scripts should use the `aqp_` prefix consistently.
+Do not add `AQP` to every local variable or standard test name. The repository and package already identify the project; use clear, consistent names for custom files.
 
-## 3. Repository tree
+## 3. Recommended repository tree
 
 ```text
 AQP-PYTHON/
-├── README.md
-├── PY REPOSITORY OVERVIEW.md
-├── pyproject.toml
-├── requirements.txt
-├── requirements-dev.txt
-├── .gitignore
-├── .env.example
-├── .pre-commit-config.yaml
+├── README.md                         # Quick start and project status
+├── PY REPOSITORY OVERVIEW.md         # This repository map
+├── pyproject.toml                    # Package metadata, dependencies, CLI and tooling
+├── .gitignore                        # Excludes secrets, environments and generated files
+├── .env.example                      # Names of required environment variables; no real secrets
 │
-├── .vscode/
-│   ├── settings.json
-│   ├── launch.json
-│   └── tasks.json
-│
-├── configs/
-│   ├── aqp_pipeline.yaml
-│   ├── aqp_markets.yaml
-│   ├── aqp_data_sources.yaml
-│   ├── aqp_universe_rules.yaml
-│   ├── aqp_forecast_models.yaml
-│   ├── aqp_validation.yaml
-│   ├── aqp_risk_limits.yaml
-│   ├── aqp_execution.yaml
-│   └── aqp_reporting.yaml
+├── configs/                          # Run settings; data only, not executable code
+│   ├── aqp_pipeline.yaml             # Run mode, selected stages and date range
+│   ├── aqp_markets.yaml              # ASX/US calendars, time zones and sessions
+│   ├── aqp_data_sources.yaml         # Provider, extraction and data-frequency settings
+│   ├── aqp_universe_rules.yaml       # Stage 1 gates, scoring weights and archetypes
+│   ├── aqp_forecast_models.yaml      # Enabled model families, horizons and parameters
+│   ├── aqp_validation.yaml           # Walk-forward splits, metrics and eligibility criteria
+│   ├── aqp_risk_limits.yaml          # Position, concentration, volatility and leverage limits
+│   ├── aqp_execution.yaml            # Simulation, transaction costs and order constraints
+│   └── aqp_reporting.yaml            # Plots, diagnostics and narrative-report options
 │
 ├── docs/
-│   ├── architecture/
-│   │   ├── aqp_system_architecture.md
-│   │   ├── aqp_data_dictionary.md
-│   │   └── aqp_model_registry.md
-│   ├── methodology/
-│   │   ├── aqp_stage_00_data.md
-│   │   ├── aqp_stage_01_universe.md
-│   │   ├── aqp_stage_02_forecasting.md
-│   │   ├── aqp_stages_03_04_portfolio.md
-│   │   ├── aqp_stage_05_sizing.md
-│   │   ├── aqp_stage_06_execution.md
-│   │   └── aqp_stage_07_monitoring.md
-│   └── diagrams/
+│   ├── aqp_architecture.md           # Architecture and stage hand-offs
+│   ├── aqp_data_dictionary.md        # Fields, units, identifiers and timestamps
+│   ├── aqp_model_registry.md         # Model inventory, versions and status
+│   └── diagrams/                     # Editable Mermaid diagrams (.mmd)
 │       ├── aqp_pipeline_overview.mmd
 │       ├── aqp_stage_00_data.mmd
 │       ├── aqp_stage_01_universe.mmd
 │       ├── aqp_stage_02_forecasting.mmd
-│       ├── aqp_stage_02a_financial.mmd
-│       ├── aqp_stage_02b_macro.mmd
-│       ├── aqp_stage_02c_micro_market.mmd
-│       ├── aqp_stage_02d_news.mmd
-│       ├── aqp_stage_02e_validation.mmd
 │       ├── aqp_stages_03_04_portfolio.mmd
 │       ├── aqp_stage_05_sizing.mmd
 │       ├── aqp_stage_06_execution.mmd
-│       ├── aqp_safety_controls.mmd
-│       └── aqp_stage_07_monitoring.mmd
+│       ├── aqp_stage_07_monitoring.mmd
+│       └── aqp_safety_controls.mmd
 │
 ├── data/
-│   ├── README.md
-│   ├── raw/                 # Original inputs; normally excluded from Git
-│   ├── interim/             # Intermediate transformed data
-│   ├── processed/           # Validated, analysis-ready datasets
-│   ├── reference/           # Symbol mappings, calendars, classifications
-│   └── samples/             # Small synthetic/non-sensitive fixtures for tests
+│   ├── README.md                     # Data handling and licensing rules
+│   └── samples/                      # Small synthetic or approved test fixtures
 │
 ├── src/
 │   └── aqp_python/
-│       ├── __init__.py
-│       ├── cli.py
-│       ├── logging_config.py
+│       ├── __init__.py               # Marks the Python package; keep lightweight
+│       ├── cli.py                    # The single command-line entry point
 │       ├── config/
-│       │   ├── aqp_config_loader.py
-│       │   └── aqp_config_validation.py
+│       │   └── aqp_config.py         # Loads, validates and exposes YAML settings
 │       ├── contracts/
-│       │   ├── aqp_data_schemas.py
-│       │   ├── aqp_forecast_schema.py
-│       │   ├── aqp_portfolio_schema.py
-│       │   └── aqp_run_manifest.py
+│       │   └── aqp_contracts.py      # Shared data, forecast, portfolio and run schemas
 │       ├── connectors/
 │       │   └── lseg/
 │       │       ├── __init__.py
-│       │       ├── aqp_lseg_session.py
-│       │       ├── aqp_lseg_instruments.py
-│       │       └── aqp_lseg_fields.py
+│       │       └── aqp_lseg_client.py # LSEG session, instrument/field mapping and API calls
 │       ├── orchestration/
-│       │   ├── aqp_orchestrator.py
-│       │   ├── aqp_stage_router.py
-│       │   ├── aqp_run_context.py
-│       │   └── aqp_run_manifest_writer.py
+│       │   └── aqp_orchestrator.py   # Run context, ordered stage execution and statuses
 │       ├── storage/
-│       │   ├── aqp_storage_paths.py
-│       │   ├── aqp_dataset_registry.py
-│       │   └── aqp_run_store.py
+│       │   └── aqp_storage.py        # Run paths, dataset references and output writes
 │       ├── stages/
 │       │   ├── stage_00_data/
 │       │   │   ├── __init__.py
-│       │   │   ├── aqp_lseg_extractor.py
-│       │   │   ├── aqp_hfd_builder.py
-│       │   │   ├── aqp_lfd_builder.py
-│       │   │   ├── aqp_corporate_actions.py
-│       │   │   ├── aqp_data_validator.py
-│       │   │   └── aqp_point_in_time_controls.py
-│       │   │
+│       │   │   ├── aqp_market_data.py # Extract/build daily and intraday datasets
+│       │   │   └── aqp_data_validation.py # Quality, timestamps and point-in-time checks
 │       │   ├── stage_01_universe/
 │       │   │   ├── __init__.py
-│       │   │   ├── aqp_candidate_universe.py
-│       │   │   ├── aqp_company_screening.py
-│       │   │   ├── aqp_universe_scoring.py
-│       │   │   ├── aqp_archetype_assignment.py
-│       │   │   ├── aqp_universe_formation.py
-│       │   │   └── aqp_safety_exit_monitor.py
-│       │   │
+│       │   │   └── aqp_universe_builder.py # Gates, multi-factor score, archetypes and version
 │       │   ├── stage_02_forecasting/
 │       │   │   ├── __init__.py
-│       │   │   ├── aqp_forecast_runner.py
-│       │   │   ├── aqp_forecast_registry.py
-│       │   │   ├── aqp_forecast_adapter.py
+│       │   │   ├── aqp_forecast_runner.py # Runs model families under a common contract
+│       │   │   ├── aqp_forecast_validation.py # Walk-forward tests, calibration and eligibility
 │       │   │   ├── financial/
-│       │   │   │   ├── aqp_financial_features.py
-│       │   │   │   ├── aqp_return_forecast.py
-│       │   │   │   └── aqp_distress_model.py
+│       │   │   │   └── aqp_financial_models.py
 │       │   │   ├── macro/
-│       │   │   │   ├── aqp_macro_features.py
-│       │   │   │   ├── aqp_macro_state_model.py
-│       │   │   │   └── aqp_macro_sensitivity.py
+│       │   │   │   └── aqp_macro_models.py
 │       │   │   ├── micro_market/
-│       │   │   │   ├── aqp_interday_market_model.py
-│       │   │   │   ├── aqp_intraday_features.py
-│       │   │   │   └── aqp_market_microstructure_model.py
-│       │   │   ├── news/
-│       │   │   │   ├── aqp_news_ingestion.py
-│       │   │   │   ├── aqp_news_event_extractor.py
-│       │   │   │   ├── aqp_news_novelty_check.py
-│       │   │   │   └── aqp_news_event_forecast.py
-│       │   │   └── validation/
-│       │   │       ├── aqp_walk_forward_validation.py
-│       │   │       ├── aqp_forecast_calibration.py
-│       │   │       ├── aqp_model_eligibility.py
-│       │   │       └── aqp_signal_combiner.py
-│       │   │
+│       │   │   │   └── aqp_market_models.py # Interday and intraday market models
+│       │   │   └── news/
+│       │   │       └── aqp_news_models.py
 │       │   ├── stages_03_04_portfolio/
 │       │   │   ├── __init__.py
-│       │   │   ├── aqp_covariance_estimator.py
-│       │   │   ├── aqp_portfolio_risk.py
-│       │   │   ├── aqp_stress_testing.py
+│       │   │   ├── aqp_risk_engine.py # Covariance, portfolio risk and stress scenarios
 │       │   │   ├── aqp_portfolio_optimizer.py
 │       │   │   └── aqp_sleeve_allocator.py
-│       │   │
 │       │   ├── stage_05_sizing/
 │       │   │   ├── __init__.py
-│       │   │   ├── aqp_position_sizer.py
-│       │   │   ├── aqp_kelly_cap.py
-│       │   │   ├── aqp_leverage_rules.py
-│       │   │   └── aqp_position_report.py
-│       │   │
+│       │   │   └── aqp_position_sizer.py # Position size, Kelly fraction and leverage constraints
 │       │   ├── stage_06_execution/
 │       │   │   ├── __init__.py
-│       │   │   ├── aqp_order_intent.py
-│       │   │   ├── aqp_execution_simulator.py
-│       │   │   ├── aqp_cost_slippage_model.py
-│       │   │   └── aqp_fill_reconciliation.py
-│       │   │
+│       │   │   └── aqp_execution.py   # Order intents, simulation, costs and reconciliation
 │       │   └── stage_07_monitoring/
 │       │       ├── __init__.py
-│       │       ├── aqp_performance_monitor.py
-│       │       ├── aqp_data_drift_monitor.py
-│       │       ├── aqp_model_drift_monitor.py
-│       │       ├── aqp_run_diagnostics.py
-│       │       └── aqp_readiness_status.py
-│       │
+│       │       └── aqp_monitoring.py  # Performance, drift, diagnostics and readiness status
 │       ├── safety/
 │       │   ├── __init__.py
 │       │   ├── aqp_pre_trade_checks.py
 │       │   ├── aqp_hard_limits.py
-│       │   ├── aqp_kill_switch.py
-│       │   └── aqp_restart_approval.py
-│       │
-│       ├── compiler/
-│       │   ├── __init__.py
-│       │   ├── aqp_plot_compiler.py
-│       │   ├── aqp_report_compiler.py
-│       │   └── aqp_run_artifact_index.py
-│       │
+│       │   └── aqp_kill_switch.py
 │       └── reporting/
 │           ├── __init__.py
-│           ├── aqp_metrics_summary.py
-│           ├── aqp_narrative_report.py
-│           └── aqp_report_fact_checks.py
+│           ├── aqp_plot_compiler.py   # Indexes and checks model plots
+│           └── aqp_run_report.py     # Metrics summary and evidence-based narrative report
 │
-├── r_models/               # Python package invokes R through a documented adapter
+├── r_models/                          # Optional R implementations called through an adapter
 │   ├── README.md
-│   ├── scripts/
-│   │   └── aqp_realised_garch.R
-│   └── adapters/
-│       └── aqp_r_model_adapter.py
-│
-├── scripts/
-│   ├── aqp_run_pipeline.py
-│   ├── aqp_validate_environment.py
-│   ├── aqp_build_sample_data.py
-│   └── aqp_export_diagrams.ps1
+│   └── scripts/
+│       └── aqp_realised_garch.R      # Example R model; integrate only when required
 │
 ├── tests/
 │   ├── conftest.py
-│   ├── unit/
-│   │   ├── test_aqp_config_loader.py
-│   │   ├── test_aqp_data_validator.py
-│   │   ├── test_aqp_universe_scoring.py
-│   │   ├── test_aqp_forecast_schema.py
-│   │   ├── test_aqp_portfolio_constraints.py
-│   │   └── test_aqp_safety_controls.py
-│   ├── integration/
-│   │   ├── test_aqp_stage_handoffs.py
-│   │   └── test_aqp_run_artifacts.py
-│   └── test_batches/
-│       ├── test_batch_01_foundation/
-│       ├── test_batch_02_data_extraction/
-│       ├── test_batch_03_universe_selection/
-│       ├── test_batch_04_forecasting_validation/
-│       ├── test_batch_05_portfolio_sizing_safety/
-│       ├── test_batch_06_execution_simulation/
-│       └── test_batch_07_monitoring_end_to_end/
+│   ├── unit/                          # Fast tests for individual functions/modules
+│   ├── integration/                   # Stage hand-offs and run artifact tests
+│   └── batches/
+│       └── README.md                  # Seven ordered test batches; no duplicate test tree
 │
-├── outputs/                # Generated artifacts; normally excluded from Git
-│   ├── runs/
-│   ├── plots/
-│   ├── reports/
-│   ├── diagnostics/
-│   └── logs/
-│
-└── build/                  # Temporary local build/export outputs; normally excluded from Git
+└── outputs/                           # Generated artifacts; excluded from Git by default
+    ├── README.md
+    └── runs/                          # One immutable folder per run
 ```
 
-## 4. Stage-by-stage responsibilities
+**Files shown are planned files, not proof of implementation.** Empty directories may not appear in Git until they contain a tracked file; add a short `README.md` where an otherwise-empty directory needs a documented purpose.
 
-| Stage | Main entry point(s) | Responsibility | Principal output |
+## 4. Why this tree is smaller
+
+The simplified design removes duplicate ways to start the pipeline and consolidates related functions into cohesive modules:
+
+| Earlier separation | Simplified location | Why |
+|---|---|---|
+| Separate runner script and CLI | `cli.py` | One supported entry point avoids competing launch paths. |
+| Config loader + validator | `config/aqp_config.py` | Loading and validation are closely related; split later if they grow substantially. |
+| Paths + dataset registry + run store | `storage/aqp_storage.py` | One storage interface for paths, datasets and run artifacts. |
+| LSEG session + instruments + fields | `connectors/lseg/aqp_lseg_client.py` | One client initially owns provider-specific details. |
+| HFD builder + LFD builder | `stage_00_data/aqp_market_data.py` | Shared extraction/transformation logic with frequency-specific functions. |
+| Candidate universe + scoring + formation | `stage_01_universe/aqp_universe_builder.py` | One stage entry point handles gates, scoring, archetypes and versioning. |
+| Several tiny forecast registries/adapters | `aqp_forecast_runner.py` | Start with a simple runner and common forecast contract. |
+| Walk-forward + calibration + eligibility | `aqp_forecast_validation.py` | Keep related validation steps together. |
+| Covariance + portfolio risk + stress tests | `aqp_risk_engine.py` | One risk module supplies consistent estimates to the optimiser. |
+| Kelly cap + leverage rules + position report | `aqp_position_sizer.py` | Keep sizing functions together but test each rule independently. |
+| Separate drift monitors | `aqp_monitoring.py` | One monitoring entry point can call separately testable checks. |
+| Plot compiler + report compiler + metrics summary | `reporting/` | Two outputs are enough initially: plot index and run report. |
+
+Consolidation is about **fewer files**, not fewer controls. Hard limits and the kill switch remain separate modules so they can be reviewed and tested independently. Forecast families also remain distinct because they use different data and assumptions.
+
+## 5. Stage responsibilities
+
+| Stage | Main module | Responsibility | Main output |
 |---|---|---|---|
-| **00 — Data** | `aqp_lseg_extractor.py`, `aqp_data_validator.py` | Extract LSEG data, construct HFD/LFD datasets, handle corporate actions, validate fields and enforce point-in-time rules. | Validated historical and event datasets with data-quality flags. |
-| **01 — Universe** | `aqp_universe_formation.py` | Apply hard eligibility gates, compute category and composite scores, assign archetypes and version the research universe. | Frozen, versioned universe plus exclusion reasons and score details. |
-| **02 — Forecasting** | `aqp_forecast_runner.py` | Run financial, macro, interday/intraday market and news models through a shared forecast contract. | Forecast distribution/quantiles, horizon, uncertainty, provenance and status. |
-| **02E — Validation** | `aqp_walk_forward_validation.py`, `aqp_model_eligibility.py` | Evaluate forecasts chronologically out of sample, assess calibration and determine whether a model is eligible for combination. | Validation metrics and model eligibility decisions. |
-| **03–04 — Portfolio** | `aqp_portfolio_optimizer.py` | Estimate portfolio risk, stress scenarios, optimise within constraints and allocate risk across trading sleeves. | Proposed portfolio weights and risk diagnostics. |
-| **05 — Sizing** | `aqp_position_sizer.py`, `aqp_leverage_rules.py` | Apply position, Kelly-fraction, volatility, leverage, liquidity and margin constraints. | Bounded target positions and an auditable sizing report. |
-| **06 — Execution** | `aqp_execution_simulator.py` | Convert approved intents into simulated orders, model costs/slippage and reconcile fills. | Order, fill, cost and reconciliation records. |
-| **07 — Monitoring** | `aqp_performance_monitor.py` | Track performance, data/model drift, run health, plots and readiness status. | Diagnostics, monitoring metrics and status. |
-| **Safety — Independent** | `aqp_pre_trade_checks.py`, `aqp_kill_switch.py` | Enforce hard limits, block invalid orders and require an explicit process for restart after a stop. | Allow/block decisions with reason codes. |
-| **Compiler/reporting** | `aqp_plot_compiler.py`, `aqp_narrative_report.py` | Gather model plots and structured run facts; generate an evidence-based run report. | Indexed plots and a narrative report tied to the run ID. |
+| **00 — Data** | `aqp_market_data.py`, `aqp_data_validation.py` | Extract and normalise market data; check timestamps, duplicates, missing fields, corporate actions and point-in-time availability. | Validated datasets plus quality summary. |
+| **01 — Universe** | `aqp_universe_builder.py` | Apply hard eligibility gates, compute category/composite scores, assign archetypes and version membership. | Eligible research universe with scores and exclusion reasons. |
+| **02 — Forecasting** | `aqp_forecast_runner.py` | Run financial, macro, market/microstructure and news models through a common interface. | Forecasts with horizon, uncertainty, provenance and status. |
+| **02E — Validation** | `aqp_forecast_validation.py` | Evaluate out of sample, check calibration and decide which forecasts can be combined. | Validation metrics and eligibility decisions. |
+| **03–04 — Portfolio** | `aqp_risk_engine.py`, `aqp_portfolio_optimizer.py`, `aqp_sleeve_allocator.py` | Estimate risk, stress portfolios, optimise within constraints and allocate across ASX/US and interday/intraday sleeves. | Proposed weights and portfolio diagnostics. |
+| **05 — Sizing** | `aqp_position_sizer.py` | Apply position, Kelly-fraction, volatility, liquidity, leverage and margin limits. | Bounded target positions and sizing report. |
+| **06 — Execution** | `aqp_execution.py` | Simulate orders, estimate costs/slippage, model fills and reconcile results. | Order/fill/cost records. |
+| **07 — Monitoring** | `aqp_monitoring.py` | Monitor performance, data/model drift, run health and readiness. | Diagnostics and run status. |
+| **Independent safety** | `safety/` | Enforce pre-trade checks, hard limits and emergency stop conditions. | Allow/block decisions with reason codes. |
+| **Reporting** | `reporting/` | Gather model plots and create a narrative based on structured results. | Indexed plots and run report. |
 
-### Standard forecast contract
+### Shared forecast contract
 
-Forecasting models should return a documented object rather than arbitrary, inconsistent files. At minimum, record:
+Each forecast must identify the instrument, market/sleeve, target, units, forecast horizon, creation time, information cut-off time, point estimate and available predictive quantiles or distribution parameters. Include model/version, training window, data lineage, calibration/eligibility status, warnings and failure reason codes. Forecasts with different targets, units or horizons must not be combined until explicitly aligned.
 
-- instrument identifier, market and sleeve;
-- forecast creation timestamp and information cut-off timestamp;
-- target variable, forecast horizon and units;
-- point forecast and available predictive quantiles or distribution parameters;
-- uncertainty/calibration fields where available;
-- model name/version, training window and data lineage;
-- validation status and eligibility status;
-- warnings, missing-input flags and failure reason codes.
-
-Do not compare or combine forecasts with different targets, horizons or units until they have been explicitly aligned.
-
-## 5. Orchestration and expected run flow
+## 6. One run from start to finish
 
 ```text
-Configuration and run ID
-        ↓
-Stage 00: Extract and validate data
-        ↓
-Stage 01: Form the research universe
-        ↓
-Stage 02: Generate forecasts in parallel
-        ↓
-Stage 02E: Validate and combine eligible forecasts
-        ↓
-Stages 03–04: Risk estimation and portfolio optimisation
-        ↓
-Stage 05: Position sizing and leverage constraints
-        ↓
-Independent safety approval
-        ↓
-Stage 06: Execution simulation / approved execution adapter
-        ↓
-Stage 07: Monitoring and readiness evaluation
-        ↓
-Compile plots, diagnostics, run manifest and narrative report
+CLI command + YAML settings
+          ↓
+Load and validate configuration
+          ↓
+Create run ID and immutable run manifest
+          ↓
+Stage 00 — Extract and validate data
+          ↓
+Stage 01 — Form the research universe
+          ↓
+Stage 02 — Run forecasting families
+          ↓
+Stage 02E — Validate forecasts and combine eligible signals
+          ↓
+Stages 03–04 — Risk, optimisation and sleeve allocation
+          ↓
+Stage 05 — Position sizing and leverage rules
+          ↓
+Independent hard-limit and pre-trade checks
+          ↓
+Stage 06 — Execution simulation (research mode by default)
+          ↓
+Stage 07 — Monitoring, plot compilation and reporting
 ```
 
-The orchestrator should stop, block, or mark a run degraded when an essential stage fails. A failed model may be skipped only if the relevant configuration defines an approved fallback and the run records the degradation. The narrative report must describe the recorded output; it must not invent results or override a safety decision.
+The orchestrator should stop or mark a run `DEGRADED`/`BLOCKED` when a required stage fails. Optional models may be skipped only where an explicit fallback is defined and recorded. A narrative report cannot turn a failed stage into a successful run or override a safety decision.
 
-## 6. Required run outputs
+## 7. Run outputs
 
-Each run should be written to `outputs/runs/<run_id>/` with a predictable layout, for example:
+Each run receives its own output directory to prevent later runs overwriting earlier evidence:
 
 ```text
 outputs/runs/<run_id>/
@@ -356,95 +248,108 @@ outputs/runs/<run_id>/
     └── aqp_run_report.md
 ```
 
-The run manifest should record the run ID, timestamps and timezone, Git commit if available, configuration hash, data references, universe version, model versions, stage statuses, warnings, output paths and failure reasons. Use immutable run-specific output folders so a later run does not overwrite the evidence from an earlier run.
+The manifest should record the run ID and timestamps, timezone, Git commit if available, configuration hash, data references, universe version, model versions, stage statuses, warnings, output paths and failure reasons.
 
-### Plot and report requirements
+### Plot and reporting requirements
 
-- Each model should save traceable plots into the current run's `plots/` folder.
-- Plot filenames should contain stable identifiers for the model, instrument or market, and plot type. Avoid embedding all metadata only in the image.
-- `aqp_plot_compiler.py` should build a manifest/index of produced plots and report missing expected outputs.
-- `aqp_narrative_report.py` should use the structured run summary as its source of truth. Any AI-generated prose must distinguish measured results, model interpretations, limitations and failures.
-- If report generation fails, retain the structured run summary and mark the narrative-report stage as failed; do not mark the full pipeline successful merely because earlier stages completed.
+- Every model should save plots into its current run's `plots/` area using predictable filenames.
+- The plot compiler creates an index of expected and actual artifacts, and flags missing plots.
+- The report generator uses structured run facts as its source of truth. Separate observed metrics from model interpretation and limitations.
+- If narrative generation fails, retain the structured summary and mark report generation as failed; do not erase completed diagnostics.
 
-## 7. Seven ordered test batches
+## 8. Configuration files
 
-Run batches in order. Each batch should have a README describing its objective, fixtures, command, expected artifacts and pass criteria. Use synthetic or sanitised data in automated tests; do not commit credentials or proprietary raw data.
+`configs/` contains YAML data. `src/aqp_python/config/aqp_config.py` loads and validates the files. A YAML file does nothing until the Python code reads it and passes its values to the relevant stage.
 
-| Batch | Scope | Example pass condition |
+| File | Key settings |
+|---|---|
+| `aqp_pipeline.yaml` | Run mode, stage selection, date range, output behaviour. |
+| `aqp_markets.yaml` | Exchange calendars, time zones and trading sessions. |
+| `aqp_data_sources.yaml` | LSEG/data-source settings, enabled frequencies and extraction options. |
+| `aqp_universe_rules.yaml` | Eligibility gates, scoring directions/weights and archetype rules. |
+| `aqp_forecast_models.yaml` | Enabled forecast families, horizons and parameters. |
+| `aqp_validation.yaml` | Chronological splits, metrics, calibration and eligibility thresholds. |
+| `aqp_risk_limits.yaml` | Position/concentration caps, volatility target, leverage and margin limits. |
+| `aqp_execution.yaml` | Transaction costs, slippage assumptions and execution mode. |
+| `aqp_reporting.yaml` | Plots, diagnostics, report format and narrative settings. |
+
+Validate required keys, types, allowed ranges and cross-file compatibility before starting expensive work. Store the effective configuration snapshot for each run. Configuration must not be able to disable independent hard safety controls.
+
+## 9. Seven ordered test batches
+
+Use the same unit and integration tests in a documented progression instead of creating duplicate copies in seven test directories. `tests/batches/README.md` should specify commands, fixtures, expected outputs and pass criteria for each batch.
+
+| Batch | Coverage | Example pass condition |
 |---|---|---|
-| `test_batch_01_foundation` | Package import, config loading, logging, run IDs and manifest. | Configuration errors are caught and a manifest is produced. |
-| `test_batch_02_data_extraction` | LSEG connector mocks, HFD/LFD transformations, missing data, timestamps and corporate actions. | Schema and point-in-time tests pass; missing or stale data is flagged. |
-| `test_batch_03_universe_selection` | Hard gates, scoring direction, category weighting, archetypes and frozen membership. | Same inputs and configuration produce the same universe and reason codes. |
-| `test_batch_04_forecasting_validation` | Forecast contracts, model adapters, walk-forward splits, calibration and eligibility. | No future-data leakage; invalid or unvalidated forecasts cannot enter combination. |
-| `test_batch_05_portfolio_sizing_safety` | Covariance inputs, optimisation constraints, Kelly cap, leverage and hard limits. | Invalid, infeasible or over-limit portfolios are rejected or safely constrained. |
-| `test_batch_06_execution_simulation` | Order intents, costs, fills, slippage, partial fills and reconciliation. | Simulated fills reconcile and prohibited orders are blocked. |
-| `test_batch_07_monitoring_end_to_end` | Orchestrator, plot compiler, run manifest, diagnostics and narrative report. | A full test run produces traceable artifacts and truthful PASS/DEGRADED/BLOCKED statuses. |
+| 01 — Foundation | Package import, configuration, logging and run IDs. | Bad configuration fails early; valid run manifest is created. |
+| 02 — Data | Mocked LSEG client, daily/intraday transformations and data quality. | Invalid/stale data is detected; timestamps and schemas are consistent. |
+| 03 — Universe | Eligibility gates, score direction, weighting and archetypes. | Same inputs and configuration produce reproducible membership and reason codes. |
+| 04 — Forecasting | Forecast contract, model families and walk-forward validation. | No future-data leakage; ineligible forecasts cannot enter combination. |
+| 05 — Portfolio and safety | Risk estimates, optimiser constraints, Kelly/leverage and hard limits. | Infeasible or over-limit positions are blocked or safely constrained. |
+| 06 — Execution | Order intents, costs, fills and reconciliation. | Simulated records reconcile; prohibited orders are rejected. |
+| 07 — End-to-end | Orchestration, monitoring, plot index and report. | Run artifacts are traceable and statuses accurately represent failures. |
 
-A passing test batch establishes only the behaviour covered by that test. It does not establish that a strategy is profitable or ready for live trading.
+A test pass only establishes the behaviour covered by that test. It does not demonstrate that a trading strategy is profitable or ready for live trading.
 
-## 8. Windows and VS Code setup
+## 10. Windows and VS Code workflow
 
-From PowerShell, open the repository root in VS Code and create a project virtual environment:
+Open the repository root in VS Code. In the PowerShell terminal:
 
 ```powershell
-cd path\to\AQP-PYTHON
+# Create and activate a project-specific environment
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -e .
-pip install -r requirements-dev.txt
-code .
-```
 
-If PowerShell blocks activation, use the terminal profile or activation approach permitted by your Windows policy; do not weaken system-wide execution policy just for this project. Configure VS Code to use `AQP-PYTHON\.venv\Scripts\python.exe` as the interpreter.
+# Install the package and its declared dependencies after pyproject.toml is implemented
+python -m pip install -e .
 
-Example run commands once the CLI has been implemented:
-
-```powershell
+# Validate configuration, run research mode and execute tests after the CLI is implemented
 python -m aqp_python.cli validate-config --config configs/aqp_pipeline.yaml
 python -m aqp_python.cli run --config configs/aqp_pipeline.yaml --mode research
 pytest
 ```
 
-These are the intended command interfaces; they will work only after the package, CLI and dependencies have been implemented.
+`pyproject.toml` is the authoritative source for package metadata and dependencies. Do not keep a second hand-maintained `requirements.txt` unless a specific deployment/export workflow needs it. The commands above are intended interfaces and will work only after the package, CLI, configuration files and dependencies have been implemented.
 
-## 9. Data, credentials and Git hygiene
+If PowerShell blocks virtual-environment activation, use an approved terminal setup rather than weakening system-wide execution policy. Select `.venv\Scripts\python.exe` as the VS Code interpreter.
 
-- Keep LSEG credentials, API secrets and private tokens outside source control. Use environment variables or an approved secret store; `.env.example` contains placeholder names only.
-- Add raw, intermediate and large generated datasets to `.gitignore` unless a specific small, licensed, sanitised fixture is deliberately approved for version control.
-- Do not commit `.venv/`, caches, logs, large plot collections or run outputs by default.
-- Use `.gitkeep` only when an otherwise-empty directory must appear in Git; it does not make hidden files visible or cause Git to track ignored files.
-- Preserve data provider licences and terms. A successful LSEG connection does not itself permit redistribution of downloaded data.
-- Pin and record dependency versions for reproducibility. Use lock files if the project adopts a dependency manager that supports them.
+## 11. Data and Git hygiene
 
-## 10. Python and R boundary
+- Never commit LSEG credentials, tokens, passwords or real `.env` files. `.env.example` contains placeholder variable names only.
+- Keep licensed raw data and large generated datasets out of Git unless a small, sanitised fixture is explicitly approved.
+- Ignore `.venv/`, Python caches, local logs and generated run outputs by default.
+- `.gitkeep` only helps retain an otherwise-empty directory; it does not override `.gitignore` or make files visible.
+- Respect LSEG licensing and entitlements; successful retrieval does not imply redistribution rights.
+- Record package versions and configuration hashes for reproducibility.
 
-Python coordinates the pipeline and owns the standard schemas, data contracts, run manifest, portfolio controls, compiler and reporting. R implementations belong under `r_models/` and should be called through `aqp_r_model_adapter.py` or another documented interface. Define input/output types, timeout behaviour, error handling and package requirements before integrating an R model. Do not silently translate a failed R model into a successful forecast.
+## 12. Python/R boundary
 
-## 11. Implementation order
+Python owns orchestration, configuration, data contracts, portfolio controls, reporting and the run manifest. Optional R model scripts live in `r_models/` and are invoked through a documented adapter only when required. Define data types, input/output schemas, timeout behaviour, package requirements and failure handling. A failed R call must not be converted into a valid forecast silently. If the project later becomes strictly Python-only, remove `r_models/` and replace or formally retire its functionality.
 
-1. Establish repository tooling, configuration validation, logging and run manifests.
-2. Implement Stage 00 with mocked and small approved data fixtures before relying on full LSEG extraction.
-3. Implement Stage 01 screening, score normalisation, universe versioning and rejection reasons.
-4. Define and test the forecast contract before adding the individual Stage 02 models.
-5. Add walk-forward validation and model-eligibility rules before allowing forecasts into portfolio construction.
-6. Implement portfolio constraints, sizing and independent safety tests before execution integration.
-7. Add execution simulation, monitoring, plots and structured reports.
-8. Run the seven test batches in order; only then progress from research to paper trading and any separately approved controlled deployment.
+## 13. Implementation order
 
-## 12. Key definitions
+1. Create package metadata, the CLI, configuration loader/validator, logging and run manifests.
+2. Implement Stage 00 with synthetic data and mocked LSEG responses.
+3. Implement Stage 01 screening, scoring, archetypes, versioned universe and rejection reasons.
+4. Define the forecast contract and implement baseline models before adding complex forecast families.
+5. Add walk-forward validation and eligibility checks before forecasts reach portfolio construction.
+6. Implement portfolio constraints, Kelly/leverage calculations and independent safety tests.
+7. Add execution simulation, monitoring, plot compilation and evidence-based run reporting.
+8. Complete the seven test batches before any transition from research to paper trading or separately approved live deployment.
+
+## 14. Key terms
 
 - **AQP:** Advanced Quantitative Pipeline.
-- **HFD:** High-frequency data, such as intraday observations or market data sampled at short intervals.
-- **LFD:** Low-frequency data, such as daily or other less frequent observations.
-- **Point-in-time data:** Data represented according to when it was actually available to the decision process.
-- **Research universe:** Versioned set of companies eligible for downstream analysis; not a list of automatic trades.
-- **Archetype:** A classification that routes an eligible company to relevant modelling hypotheses.
-- **Forecast eligibility:** A validated status allowing a model output to be considered by the signal-combination stage.
-- **Sleeve:** A separately configured strategy allocation, such as ASX interday or US intraday.
-- **Run manifest:** Machine-readable record of configuration, data, versions, stage statuses and output artifacts for one pipeline run.
-- **Hard limit:** A mandatory risk or operational constraint that a forecast or optimiser cannot override.
+- **HFD/LFD:** High-frequency and low-frequency data.
+- **Point-in-time data:** Values represented according to when they were actually available to the decision process.
+- **Research universe:** Versioned set of companies eligible for analysis; not an automatic list of trades.
+- **Archetype:** Company/market classification used to route relevant modelling hypotheses.
+- **Forecast eligibility:** Validation status required before a forecast can be combined with other signals.
+- **Sleeve:** Separately configured strategy allocation, such as ASX interday or US intraday.
+- **Run manifest:** Machine-readable record of versions, configuration, data lineage, stage results and artifacts for one run.
+- **Hard limit:** A mandatory risk or operational constraint that a model or optimiser cannot override.
 
 ---
 
-**Repository rule:** keep this file as the navigation map. Put extended mathematics and model-specific derivations in the relevant methodology document; put executable code in `src/aqp_python/`; put tests in `tests/`; and keep generated run artifacts under `outputs/`.
+**Repository rule:** use this file as the navigation map; keep detailed mathematical derivations in methodology documents, executable Python in `src/aqp_python/`, tests in `tests/`, configuration data in `configs/` and generated run artifacts under `outputs/`.
