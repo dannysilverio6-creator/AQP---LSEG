@@ -1,4 +1,4 @@
-# Multi-Market Quantitative Investment Pipeline
+# ADVANCE QUANTITATIVE PIPELINE OVERVIEW
 
 **Version 9: concise architecture, stage workflows and control specification**
 
