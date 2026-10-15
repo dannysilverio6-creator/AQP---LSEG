@@ -1,15 +1,42 @@
 # Multi-Market Quantitative Investment Pipeline
 
-**Version 2: methodology and model specification**
+**Version 8: staged Mermaid workflows, methodology, controls and implementation roadmap**
+
+> **Document status:** Research and system-design specification. The models, thresholds and workflows below are proposed defaults, not evidence that a strategy is profitable or that the system is production-ready. Live deployment requires implementation, independent testing, broker/data validation and explicit approval of all risk limits.
+
+> **Math-rendering note.** Equations use standard LaTeX-style Markdown delimiters: `$...$` for inline expressions and `$$...$$` for display equations. If a preview shows commands such as `\mathrm` literally, the previewer is not rendering mathematical notation; that is a renderer limitation rather than a Markdown syntax error. Use a math-enabled preview (for example, a VS Code Markdown preview extension with MathJax support) or the GitHub file view. The equation delimiters in this version were checked for balanced pairs.
 
 | | |
 |---|---|
-| Scope | ASX and US equities · interday and intraday sleeves · live capital |
+| Scope | ASX and US equities · interday and intraday sleeves · research, paper trading and controlled live deployment |
 | Structure | Archetype selection → per-company forecasting (financial, macro, micro, news) → signal combination → risk model → portfolio optimiser → leverage and position report → execution → monitoring |
-| Purpose of this document | Explain *what* each stage does, *why* it is designed that way, and *which models* it uses, with the mathematics written out and worked examples |
-| Out of scope | Code, repository layout, scheduling and automation |
+| Purpose of this document | Explain the end-to-end architecture, why each stage exists, the model specifications, the controls between stages, and the decisions still required before deployment |
+| Out of scope | Full source code, repository layout, provider-specific API instructions and production runbooks |
 
-> **How to read this document.** Each stage opens with its design principle, then a qualitative explanation (what problem the stage solves and why the chosen approach suits it), then the formal model specification, then a worked example where useful. Section 14 lists the improvements made relative to version 1. All numerical examples are illustrative.
+> **How to read this document.** Start with the end-to-end flow and gates, then follow the stages in sequence. Each stage explains its purpose, model choices and key equations. Numerical examples and default thresholds are illustrative and must be tested against the actual instruments, data quality, costs and risk mandate. Section 14 records the design changes from the prior version; Sections 16–17 define the operating contract and implementation priorities.
+
+---
+
+## Executive Summary
+
+The pipeline is a **gated research-to-execution system**, not a single predictive model. It combines four forecast layers—financial, macroeconomic, microeconomic and news-derived—then converts eligible forecasts into risk-controlled portfolio decisions for four separately configured sleeves:
+
+- ASX interday
+- US interday
+- ASX intraday
+- US intraday
+
+Its central design choices are:
+
+1. **Point-in-time integrity first.** Every input must have a defensible availability timestamp; revised data and future information must not leak into historical decisions.
+2. **Separate selection from forecasting.** Stage 1 forms a versioned, static universe. Subsequent membership changes are restricted to defined safety exits.
+3. **Common forecast interface.** Model families emit predictive quantiles on a common grid so that uncertainty, calibration and forecast quality can be compared.
+4. **Validate before weighting.** Models are admitted only after out-of-sample testing, calibration checks and net-of-cost evaluation.
+5. **Optimise only within risk limits.** Costs, liquidity, concentration, stress exposure and expected shortfall constrain portfolio construction.
+6. **Keep hard controls independent.** A forecast or optimiser cannot override the no-trade gate, leverage limits, kill switches or manual restart requirements.
+7. **Treat monitoring as part of the strategy.** Data drift, forecast degradation, execution costs and model changes are logged and reviewed; challenger models do not automatically become production models.
+
+**Important distinction:** a sophisticated specification does not establish an economic edge. The pipeline must demonstrate reproducible, out-of-sample and net-of-cost performance using point-in-time data before paper trading, and must pass separate operational and risk approval before live deployment.
 
 ---
 
@@ -30,41 +57,114 @@
 13. [Stages 6–7: Execution, Hard Limits, Monitoring and Learning](#13-stages-67-execution-hard-limits-monitoring-and-learning)
 14. [Improvements Relative to Version 1](#14-improvements-relative-to-version-1)
 15. [Notation, Glossary and Open Questions](#15-notation-glossary-and-open-questions)
+16. [Operating Contract and Run Outputs](#16-operating-contract-and-run-outputs)
+17. [Implementation Roadmap and Readiness Gates](#17-implementation-roadmap-and-readiness-gates)
 
 ---
 
 ## 1. Pipeline at a Glance
 
-```
-Stage 0   Point-in-time data  +  Company Knowledge Layer
-              (economy stickers, market labels, peer clusters, relationship graph)
-   |
-Stage 1   Archetype Builder, run ONCE at the formation date:
-              survival filter -> liquidity -> archetype fit -> scoring
-              -> FIXED universe per sleeve                            ◆ G1
-              afterwards: safety exits only, no additions, no re-scoring
-   |
-Stage 2   Forecast models, each emitting a predictive distribution
-              2A Financial | 2B Macro | 2C Micro | 2D News (LLM)
-   |
-Stage 2E  Validate -> eligibility gate ◆ G3 -> combine eligible models
-              -> conformal calibration -> alpha decay / horizon choice
-   |
-Stage 3   Risk model: covariance, VaR/ES, stress (sticker-driven scenarios)
-   |
-Stage 4   Optimiser per sleeve (cost-aware) + sleeve capital allocator  ◆ G4
-   |
-Stage 5   Leverage and position report: sizing, leverage, drawdown control
-              ◆ G5 leverage/margin, then decision layer ◆ G6 NO-TRADE
-   |
-Stage 6   Execution + hard limits independent of the models
-   |
-Stage 7   Monitoring and learning -> reweight / retrain models          ◆ G7
-              (never changes universe membership)
+The main diagram is the system map. The smaller Mermaid diagrams embedded in Sections 3–13 then zoom into the corresponding stage and show its inputs, processing steps, decisions, outputs and failure paths. Read them in numerical order; each stage output should match the input expected by the next stage. The detailed methodology remains authoritative if a simplified diagram omits an implementation detail.
 
-Validation harness (purging, embargo, multiple-testing control) governs Stages 2–5.
-Data integrity firewall ◆ G2 sits between Stage 0 and every consumer.
+### Main pipeline
+
+```mermaid
+flowchart TB
+    START([RUN CONFIGURATION<br/>Choose date and sleeve<br/>ASX / US · Interday / Intraday])
+
+    DATA["0 · DATA FOUNDATION<br/>Point-in-time inputs · lineage · vintage history<br/>Company knowledge layer · data-integrity firewall G2"]
+    UNIVERSE["1 · COMPANY SELECTION<br/>Survival · liquidity · history · archetype fit · G1<br/>Versioned universe; safety exits only"]
+
+    subgraph MODELS["2 · FORECAST IN PARALLEL"]
+        direction LR
+        FIN["FINANCIAL<br/>Returns · volatility · distress"]
+        MACRO["MACROECONOMIC<br/>Regimes · economy stickers"]
+        MICRO["MICROECONOMIC<br/>Peers · order flow · spreads"]
+        NEWS["NEWS<br/>Events · direction · decay"]
+    end
+
+    CONTRACT["COMMON FORECAST FORMAT<br/>Horizon · timestamp · quantiles<br/>Uncertainty · model version · data lineage"]
+    VALIDATE["3 · VALIDATE AND COMBINE · G3<br/>Walk-forward tests · calibration · overfit controls<br/>Combine eligible forecasts only"]
+    PORTFOLIO["4 · PORTFOLIO CONSTRUCTION · G4<br/>Risk model + cost-aware optimiser<br/>Liquidity · concentration · stress limits"]
+    PRETRADE["5 · POSITION AND PRE-TRADE CONTROLS · G5 / G6<br/>Position sizing · leverage · margin headroom<br/>Final data, model, risk and kill-switch check"]
+    EXECUTE["6 · EXECUTION<br/>Order sizing · routing · fills · slippage<br/>Independent order and position limits remain active"]
+    REPORT["7 · MONITOR AND REPORT<br/>P&L · forecast drift · costs · incidents<br/>Plots · structured run record · narrative report"]
+    END([END OF RUN])
+
+    START --> DATA --> UNIVERSE --> MODELS
+    FIN --> CONTRACT
+    MACRO --> CONTRACT
+    MICRO --> CONTRACT
+    NEWS --> CONTRACT
+    CONTRACT --> VALIDATE --> PORTFOLIO --> PRETRADE --> EXECUTE --> REPORT --> END
+
+    classDef terminal fill:#f3f4f6,stroke:#6b7280,color:#202938,stroke-width:1px;
+    classDef stage fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
+    classDef forecast fill:#edf7ed,stroke:#54845e,color:#1d4026,stroke-width:1px;
+    classDef control fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+
+    class START,END terminal;
+    class DATA,UNIVERSE,CONTRACT,VALIDATE,PORTFOLIO,EXECUTE,REPORT stage;
+    class FIN,MACRO,MICRO,NEWS forecast;
+    class PRETRADE control;
 ```
+
+**Gate failures:** if a check fails, the system must take a documented safe action—quarantine bad data, exclude an ineligible model, re-optimise within tighter limits, reduce exposure, or block the trade. Record a machine-readable reason code every time. If there is no approved safe fallback, the result is **NO-TRADE**. A forecast or optimiser can never override a hard limit or kill switch.
+
+### Model improvement loop
+
+This is a separate governance process. Monitoring can trigger a review, but a challenger never replaces the production model automatically.
+
+```mermaid
+flowchart LR
+    MON["MONITOR<br/>Detect drift or degradation"] --> TEST["TEST CHALLENGER<br/>Out-of-sample + shadow run"]
+    TEST --> G7{"G7<br/>Approved?"}
+    G7 -->|Yes| RELEASE["VERSIONED RELEASE<br/>Approval + rollback plan"]
+    G7 -->|No / unclear| KEEP["KEEP CURRENT MODEL<br/>Continue monitoring"]
+
+    classDef review fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef safe fill:#edf7ed,stroke:#54845e,color:#1d4026,stroke-width:1px;
+    classDef retain fill:#f3f4f6,stroke:#6b7280,color:#202938,stroke-width:1px;
+    class MON,TEST review;
+    class G7 gate;
+    class RELEASE safe;
+    class KEEP retain;
+```
+
+A successful release changes the forecast-model version used in **future runs only**. It does not silently change the fixed universe, risk limits, or the code/configuration of a run already in progress.
+
+### How the stage diagrams build into the main pipeline
+
+Use the main diagram as the system map, then open the matching section for the detail view. The arrows at the end of each diagram describe the hand-off to the next stage; the diagrams do not create additional independent pipelines.
+
+| Main-pipeline block | Detailed process diagram | Output handed forward |
+|---|---|---|
+| Data and knowledge | Stage 0, Section 3 | Validated point-in-time data and company knowledge |
+| Company selection | Stage 1, Section 4 | Frozen, versioned research universe and archetypes |
+| Forecast production | Stage 2A–2D, Sections 6–9 | Financial, macro, micro and news forecasts |
+| Common forecast interface | Stage 2, Section 5 | Standardised quantile distributions and metadata |
+| Validation and combination | Stage 2E, Section 10 | Eligible, combined and calibrated forecasts |
+| Risk and portfolio construction | Stages 3–4, Section 11 | Risk-checked target weights and sleeve budgets |
+| Leverage and decision report | Stage 5, Section 12 | Approved order intents or an explicit no-trade outcome |
+| Execution | Stage 6, Section 13.1 | Reconciled positions and execution records |
+| Monitoring and learning | Stage 7, Sections 13.2–13.5 | Run report, diagnostics and controlled model-review actions |
+
+### Gate and status convention
+
+| Gate | Meaning | Failure action |
+|---|---|---|
+| **G1 · Universe** | Formation rules passed; after formation, only defined safety exits may change membership | Exclude at formation or apply a logged safety exit |
+| **G2 · Data integrity** | No look-ahead, schema, unit or freshness breach | Quarantine affected data or block the affected run/sleeve |
+| **G3 · Model eligibility** | Forecast passes stability, calibration, out-of-sample and net-of-cost tests | Exclude the model; no eligible signal means no trade |
+| **G4 · Portfolio risk** | Volatility, expected shortfall, concentration, liquidity and stress constraints hold | Re-optimise with tighter limits or scale toward cash |
+| **G5 · Leverage and margin** | Exposure and stressed margin stay within approved limits | Reduce exposure; block if still outside limits |
+| **G6 · Final no-trade check** | All mandatory data, model, risk and operational controls pass | Do not submit the affected trade/order |
+| **G7 · Model promotion** | Challenger is approved after independent validation and shadow testing | Retain the current production model |
+
+- **PASS:** required checks passed; the stage may continue.
+- **DEGRADED:** a non-critical component is unavailable and a specifically approved fallback exists.
+- **BLOCKED:** a critical check failed; the affected name, sleeve or run cannot proceed.
 
 ### 1.1 Sleeves
 
@@ -91,6 +191,8 @@ The pipeline runs as four **sleeves** that share one architecture but have separ
 ---
 
 ## 2. Design Principles and Gates
+
+> **Threshold convention.** Numeric thresholds shown throughout the document are illustrative defaults for research. They must be versioned by sleeve, justified with historical and stress testing, and approved before use with capital. A threshold that is not yet calibrated must be marked provisional in configuration and reports.
 
 > **Principle.** The pipeline is a chain of increasingly expensive decisions. Each stage may only use information that was knowable at decision time, and each stage has an explicit, measurable condition under which it stops.
 
@@ -125,6 +227,33 @@ The pipeline runs as four **sleeves** that share one architecture but have separ
 ## 3. Stage 0: Point-in-Time Data and the Company Knowledge Layer
 
 > **Principle.** A backtest is only as honest as its timestamps. Every fact records *when it became knowable*, and every read asks "as of when?".
+
+### Stage 0 process diagram
+
+```mermaid
+flowchart TB
+    A([Run configuration and decision cut-off]) --> B[Load market, fundamentals, estimates, macro, news, membership, borrow and margin data]
+    B --> C[Standardise identifiers, calendars, currencies, units and time zones]
+    C --> D[Store valid time and knowledge time; retain historical vintages]
+    D --> E[Apply as-of query and corporate-action rules]
+    E --> F{G2 data-integrity checks pass?}
+    F -->|Block-level failure| G[Block affected branch or run; record reason code]
+    F -->|Name-specific failure| H[Quarantine affected name and retain audit trail]
+    F -->|Pass| I[Build versioned Company Knowledge Layer]
+    I --> J[Economy stickers, market labels, peer clusters, relationship graph and membership history]
+    J --> K([Validated point-in-time data and features with lineage])
+
+    classDef input fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef process fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class A,B input;
+    class C,D,E,I,J,K process;
+    class F gate;
+    class G,H stop;
+```
+
+**How to read it:** all data is aligned to the run's decision cut-off before features are built. Block-level failures stop the affected branch; name-level failures quarantine that name. The output is a reproducible, timestamped data foundation—not a trading signal.
 
 ### 3.1 Why point-in-time matters
 
@@ -193,6 +322,42 @@ The knowledge layer is the shared description of every company. It is built once
 ## 4. Stage 1: Archetype Builder
 
 > **Principle.** Selection is explainable and **static**. It runs once, at a formation date, and excludes names that are likely to fail or impossible to trade. It chooses the strategy archetype for which each surviving name is suited. The resulting universe is fixed: names leave only through safety exits, and no names are added. Stage 1 does **not** forecast returns.
+
+### Stage 1 process diagram
+
+```mermaid
+flowchart TB
+    A([Formation date and market scope]) --> B[Build point-in-time candidate list, including later-delisted firms in historical tests]
+    B --> C[Apply hard survival and distress filters]
+    C --> D{Pass hard survival rules?}
+    D -->|No| X[Reject with reason code: DIST, HIST or other rule]
+    D -->|Yes| E[Apply sleeve-specific liquidity and tradability screens]
+    E --> F{Tradable at required horizon and size?}
+    F -->|No| Y[Reject with reason code: LIQ or TRADABILITY]
+    F -->|Yes| G[Test data depth, forecastability and stability]
+    G --> H[Assign one or more strategy archetypes]
+    H --> I[Standardise variables within appropriate peer or sector groups]
+    I --> J[Combine category scores and rank eligible names]
+    J --> K{Pass admission threshold and sleeve capacity rules?}
+    K -->|No| Z[Reject with formation scores and reason code]
+    K -->|Yes| L[Assign fixed data tier and create versioned universe]
+    L --> M([Frozen research universe])
+    M --> N[Monitor safety exits only: distress, delisting, suspension, takeover or liquidity collapse]
+    N --> O{Safety exit triggered?}
+    O -->|Yes| P[Log exit and retain history; do not replace or re-enter]
+    O -->|No| M
+
+    classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef decision fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef reject fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    classDef output fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    class A,B,C,E,G,H,I,J,N process;
+    class D,F,K,O decision;
+    class X,Y,Z,P reject;
+    class L,M output;
+```
+
+**Key rule:** this stage forms and classifies the universe; it does not forecast returns or make buy/sell decisions. Scores are frozen for membership after formation. Later changes are limited to the documented safety exits.
 
 ### 4.1 Why selection is a separate stage
 
@@ -345,6 +510,34 @@ The explorer, rejected at formation, is never reconsidered within this universe 
 
 > **Principle.** Every model family speaks the same language at its output: a calibrated predictive distribution on a common quantile grid.
 
+### Stage 2 process diagram: the common forecast contract
+
+```mermaid
+flowchart TB
+    A[Financial model output] --> F[Forecast adapter]
+    B[Macro model output] --> F
+    C[Micro model output] --> F
+    D[News model output] --> F
+    F --> G[Attach security, decision time, horizon, model version and data lineage]
+    G --> H[Map outputs to common excess-return target and quantile grid]
+    H --> I{Schema, timestamps and target definition valid?}
+    I -->|No| X[Reject output; log contract failure]
+    I -->|Yes| J[Check quantile ordering and repair crossings by monotone rearrangement]
+    J --> K[Store label end date for purging and embargo]
+    K --> L([Comparable forecast distributions for Stage 2E])
+
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class A,B,C,D model;
+    class F,G,H,J,K,L process;
+    class I gate;
+    class X stop;
+```
+
+**Output contract:** each forecast carries enough metadata to reproduce it and align it to realised outcomes. Models that cannot satisfy the contract are not passed to validation as if they had succeeded.
+
 ### 5.1 Why distributions rather than point forecasts
 
 A point forecast says nothing about confidence. The optimiser, the risk model and the leverage decision all need *uncertainty*. A model that forecasts +1% with a narrow interval should be sized very differently from one that forecasts +1% with a wide interval. Requiring a full distribution from every model also allows all four layers to be scored and combined on equal terms.
@@ -383,6 +576,35 @@ $$
 ## 6. Stage 2A: Financial Model
 
 > **Principle.** "Highest tier" means the model with the best out-of-sample, net-of-cost performance for the task, not the most complex model. Every candidate must beat a simple benchmark.
+
+### Stage 2A process diagram: financial forecasts
+
+```mermaid
+flowchart TB
+    A[Point-in-time prices, returns, fundamentals and benchmark data] --> B[Create leakage-safe features and target labels]
+    B --> C[Fit simple benchmarks first]
+    C --> D[Estimate return quantile candidates: regularised, tree-based or other tested models]
+    C --> E[Estimate volatility: GJR-GARCH, EGARCH and HAR when realised data exist]
+    C --> F[Estimate distress probability with firm-year hazard model]
+    C --> G[Estimate changing factor exposures with filtered state-space model]
+    D --> H[Check fit status, parameter stability and out-of-sample forecasts]
+    E --> H
+    F --> H
+    G --> H
+    H --> I[Check distress estimates and create survival-risk feature]
+    H --> J[Select candidate return and volatility outputs for common forecast adapter]
+    I --> K([Distress probability for risk and safety logic])
+    J --> L([Return quantiles and volatility forecasts to Stage 2])
+
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef output fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    class A,B,C data;
+    class D,E,F,G,H,J model;
+    class I,K,L output;
+```
+
+This diagram shows model production, not final eligibility. Stage 2E performs the common out-of-sample eligibility tests before any forecast can receive combination weight.
 
 ### 6.1 Why complexity is not the criterion
 
@@ -474,6 +696,34 @@ $$
 ## 7. Stage 2B: Macro Model (Economy Stickers)
 
 > **Principle.** A company is exposed to the economies it actually earns and spends in. Each economy has its own state; each company's macro forecast is the sticker-weighted combination of those states, passed through firm-specific sensitivities that are estimated from data but anchored to the sticker.
+
+### Stage 2B process diagram: economy stickers to company forecasts
+
+```mermaid
+flowchart TB
+    A[Point-in-time macro releases, market variables and consensus data] --> B[Standardise by economy and retain release vintages]
+    B --> C[Estimate economy states with dynamic factor models]
+    B --> D[Estimate regime probabilities and mixed-frequency nowcasts]
+    C --> E[Combine state estimates with each firm's dated revenue and cost stickers]
+    D --> E
+    E --> F[Estimate company sensitivities to macro factors]
+    F --> G[Shrink noisy sensitivities toward sticker-based priors]
+    E --> H[Translate scheduled release surprises into event effects]
+    G --> I[Combine states, regimes, sensitivities and event effects]
+    H --> I
+    I --> J[Propagate scenario shocks through sector and relationship channels]
+    J --> K[Include explicit FX and input-cost exposure]
+    K --> L([Macro contribution and predictive quantiles for Stage 2])
+
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef output fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    class A,B data;
+    class C,D,E,F,G,H,I,J,K model;
+    class L output;
+```
+
+The company knowledge layer supplies versioned sticker weights and relationship links. Macro states are not assigned by listing country alone; they reflect where the firm earns revenue and incurs costs.
 
 ### 7.1 Qualitative overview
 
@@ -596,6 +846,34 @@ AUD/USD enters as an explicit factor. The firm's net FX exposure is approximatel
 
 > **Principle.** Company-level microeconomic data are sparse and slow. Labelling companies by market lets the model borrow strength across peers who face the same demand, costs and competition.
 
+### Stage 2C process diagram: interday and intraday branches
+
+```mermaid
+flowchart TB
+    A[Point-in-time company, peer, market and trading data] --> B{Which sleeve is running?}
+    B -->|Interday| C[Build company-market panel: prices, demand, input costs, margins and competition]
+    C --> D[Fit panel and hierarchical models; use cross-fitted DML where justified]
+    D --> E[Estimate peer and earnings-surprise responses]
+    B -->|Intraday| F[Clean trades, quotes and order-book observations]
+    F --> G[Estimate trade intensity, durations, order-flow imbalance and price impact]
+    G --> H[Compute realised variance, jumps, kernels and semivariances]
+    E --> I[Combine economic response, market labels and forecast horizon]
+    H --> J[Produce liquidity, execution-cost and short-horizon market-state features]
+    J --> I
+    I --> K([Micro contribution and predictive quantiles for Stage 2])
+
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef decision fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef output fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    class A data;
+    class B decision;
+    class C,D,E,F,G,H,I,J model;
+    class K output;
+```
+
+Interday micro variables describe product-market economics; intraday micro variables describe market microstructure. They share the forecast contract but use different features, clocks and cost assumptions.
+
 ### 8.1 Qualitative overview
 
 The micro layer models the economics of the markets a company operates in: pricing power, input costs, demand, competitive intensity and margins. Interday, these drive earnings and therefore returns. Intraday, "micro" means **market microstructure**: the mechanics of how prices form from order flow.
@@ -661,6 +939,35 @@ These feed the HAR model (Section 6.5), the archetype forecastability test and t
 ## 9. Stage 2D: News Model (LLM Extraction)
 
 > **Principle.** The large language model is a **feature extractor**, not a forecaster. It reads text and produces structured, timestamped facts; a separate model trained on realised returns decides what those facts are worth.
+
+### Stage 2D process diagram: news to calibrated event features
+
+```mermaid
+flowchart TB
+    A[News stories, transcripts and exchange announcements] --> B[Check source, publication time, processing latency, prompt and model version]
+    B --> C{Point-in-time and model-version rules valid?}
+    C -->|No| X[Block use in the affected historical test or run]
+    C -->|Yes| D[Link entities and de-duplicate stories into event records]
+    D --> E[LLM extracts fixed-schema fields from untrusted text]
+    E --> F{Schema and timestamp checks pass?}
+    F -->|No| X
+    F -->|Yes| G[Measure novelty and compare with price move since publication]
+    G --> H[Propagate effects across the relationship graph with decay]
+    H --> I[Feed structured features to calibrated model trained on realised returns]
+    I --> J[Estimate shock probability and return quantiles]
+    J --> K([News contribution to common forecast adapter])
+
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class A,B,D data;
+    class E,G,H,I,J,K model;
+    class C,F gate;
+    class X stop;
+```
+
+**Leakage rule:** for a historical test, the news model version, prompt and training cut-off must be valid for the test period. The LLM never issues a trade or directly sets a return forecast.
 
 ### 9.1 Why this division of labour
 
@@ -738,6 +1045,38 @@ An LLM trained after the backtest period has, in effect, read the future. Contro
 ## 10. Stage 2E: Validation, Eligibility and Signal Combination
 
 > **Principle.** Validate first, then decide eligibility, then combine. A model that has not earned eligibility never receives a weight.
+
+### Stage 2E process diagram: validate, gate, combine
+
+```mermaid
+flowchart TB
+    A[Archived candidate forecasts and matched realised outcomes] --> B[Create chronological walk-forward folds]
+    B --> C[Purge overlapping labels and apply embargo]
+    C --> D[For each candidate, test benchmarks, calibration, stability, net-of-cost skill and overfitting]
+    D --> E{Candidate passes G3 eligibility?}
+    E -->|Yes| F[Add candidate to eligible model set]
+    E -->|No| X[Exclude candidate and record reason code]
+    F --> G[Finish eligibility assessment for all candidates]
+    X --> G
+    G --> H{Eligible model set non-empty?}
+    H -->|No| N([NO-TRADE for affected name or sleeve])
+    H -->|Yes| I[Estimate inverse-loss, stacking or regime-conditional weights]
+    I --> J[Combine predictive quantiles; shrink weights when evidence is weak]
+    J --> K[Apply conformal calibration and choose horizon by net information ratio]
+    K --> L([Combined calibrated forecast distributions for risk and optimisation])
+
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class A,B,C data;
+    class D,F,G,I,J,K,L model;
+    class E,H gate;
+    class X,N stop;
+```
+
+
+A candidate model's own training or fit success is insufficient: G3 is a separate decision based on out-of-sample evidence and tradeability after costs.
 
 ### 10.1 Purged, embargoed walk-forward validation
 
@@ -847,6 +1186,39 @@ where BR is breadth (independent bets per year) and TC the transfer coefficient 
 
 > **Principle.** Risk is estimated several ways and the most conservative credible estimate binds. The optimiser never sees a number the risk engine has not checked.
 
+### Stages 3–4 process diagram: risk, optimisation and capital allocation
+
+```mermaid
+flowchart TB
+    A[Combined eligible forecasts, current positions, holdings and cost estimates] --> B[Estimate covariance using shrinkage, factor, dynamic-correlation and regime models]
+    B --> C[Calculate volatility, expected shortfall and stress losses]
+    A --> D[Convert forecasts and uncertainty into expected-return views]
+    D --> E[Build cost-aware portfolio objective with distress penalties]
+    C --> F[Supply checked risk estimates and binding risk limits]
+    E --> G[Optimise each sleeve with position, turnover, sector, country, FX, liquidity and tail-risk constraints]
+    F --> G
+    G --> H{Solver successful and G4 limits satisfied?}
+    H -->|Yes| I[Accept target weights for the sleeve]
+    H -->|No| J[Relax only approved constraints and rerun optimiser: turnover, then sector, then tracking error]
+    J --> K{Feasible after permitted relaxation?}
+    K -->|No| L[Hold current weights and flag the sleeve; do not manufacture a solution]
+    K -->|Yes| I
+    I --> M[Allocate capital across sleeves by risk budget and evidence, within sleeve caps]
+    M --> N([Target weights and risk diagnostics for Stage 5])
+
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class A data;
+    class B,C,D,E,F,G,J,M model;
+    class H,K gate;
+    class I,N output;
+    class L stop;
+```
+
+Liquidity and tail-risk limits are never relaxed to make the optimiser succeed. A solver's success flag is not enough: constraint residuals and solution status must also be checked.
+
 ### 11.1 Covariance estimation
 
 | Estimator | Specification | Qualitative role |
@@ -926,13 +1298,13 @@ The linear cost term covers spread and commission; the $3/2$-power term is marke
 - Turnover limit; long-only or long-short rules; borrow availability for shorts.
 - CVaR limit over scenarios (Rockafellar–Uryasev): $\zeta+\frac1{(1-\beta)S}\sum_su_s\le\overline{\mathrm{CVaR}}$, $u_s\ge-r_s^\top w-\zeta$, $u_s\ge0$.
 
-All terms are convex, so the problem is solved to global optimality.
+With convex costs and constraints, this formulation can be solved as a convex optimisation problem. This claim applies only when the implemented objective and constraints preserve convexity; added discrete decisions, non-convex penalties or unsupported constraints require a different solver or a documented approximation. Solver status and constraint residuals must be checked before weights are accepted.
 
 **Alternatives** used as challengers: hierarchical risk parity (robust when the covariance is unreliable) and minimum-CVaR portfolios.
 
 **Infeasibility protocol.** Relax in order turnover → sector → tracking error. Never relax liquidity or tail limits. If still infeasible, hold current weights and flag.
 
-**Risk-limit gate (◆ G4).** Ex-ante volatility ≤ 1.1 × target; ES within limit (max of the engines); single name ≤ 8%, sector ≤ 30%; liquidation ≤ 3 days at 20% ADV; every stress within budget.
+**Risk-limit gate (◆ G4).** Illustrative starting limits: ex-ante volatility ≤ 1.1 × target; ES within the approved limit; single name ≤ 8%; sector ≤ 30%; liquidation ≤ 3 days at 20% ADV; every stress within budget. These are configuration candidates, not universal safe limits, and must be validated for each sleeve and instrument.
 
 ### 11.5 Sleeve capital allocator
 
@@ -949,6 +1321,42 @@ Budgets $b_k$ start equal and move toward sleeves with stronger out-of-sample ev
 ## 12. Stage 5: Leverage and Position Report
 
 > **Principle.** Relative sizes come from the optimiser; total leverage is a separate decision governed by forecast uncertainty, volatility, drawdown and margin. The report states what to hold, how much, why, and when the position is wrong.
+
+### Stage 5 process diagram: convert target weights into permitted actions
+
+```mermaid
+flowchart TB
+    A[Target weights plus current positions and portfolio NAV] --> B[Estimate uncertainty-adjusted fractional Kelly cap]
+    B --> C[Calculate leverage limits from target volatility, policy maximum and margin headroom]
+    C --> D[Apply drawdown control and financing or borrow costs]
+    D --> E{G5 leverage, margin and financing checks pass?}
+    E -->|No| F[Reduce gross exposure and recheck]
+    F --> G{Within limits after reduction?}
+    G -->|No| X[Block new risk; retain only risk-reducing actions allowed by policy]
+    G -->|Yes| H[Convert target weights into position changes]
+    E -->|Yes| H
+    H --> I[Compare expected benefit with spread, commission and market-impact cost]
+    I --> J[Suppress changes inside the no-trade band]
+    J --> K{G6 data, model, risk, liquidity, market-state and kill-switch checks pass?}
+    K -->|No| Y[NO-TRADE or documented risk-reducing action]
+    K -->|Yes| L[Create approved order intents]
+    X --> M[Generate position and sleeve report with reason codes]
+    Y --> M
+    L --> M
+    M --> N([Report and order intents for Stage 6])
+
+    classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    classDef output fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    class A input;
+    class B,C,D,H,I,J process;
+    class E,G,K gate;
+    class F,X,Y stop;
+    class L,M,N output;
+```
+
+The position report is produced for both trade and no-trade outcomes. A model recommendation is not an order until the G5 and G6 controls have passed.
 
 ### 12.1 Why sizing and leverage are separated
 
@@ -1042,6 +1450,34 @@ This defines a **no-trade band** $b_i$ around each current position. Small, low-
 > **Principle.** Execution is modelled, not assumed; hard limits sit outside the models; and models change only through controlled evaluation.
 
 ### 13.1 Execution modelling
+### Stage 6 process diagram: execution and reconciliation
+
+```mermaid
+flowchart TB
+    A[Approved order intents from Stage 5] --> B[Refresh market state and verify order, security, venue and position limits]
+    B --> C{Independent hard limits and kill switch permit order?}
+    C -->|No| X[Reject or cancel order; halt new risk if required]
+    C -->|Yes| D[Choose execution schedule using urgency, liquidity and cost estimates]
+    D --> E[Interday: closing auction or VWAP; intraday: limit orders and participation caps]
+    E --> F[Submit through broker adapter and capture acknowledgements]
+    F --> G[Monitor fills, rejects, cancellations and partial execution]
+    G --> H[Reconcile fills, cash and positions against broker records]
+    H --> I{Reconciliation complete and consistent?}
+    I -->|No| Y[Block further orders and raise operational incident]
+    I -->|Yes| J[Calculate fees, slippage and implementation shortfall]
+    J --> K([Confirmed positions and execution records for monitoring])
+
+    classDef input fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef process fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class A input;
+    class B,D,E,F,G,H,J,K process;
+    class C,I gate;
+    class X,Y stop;
+```
+
+Execution is not assumed to occur at the decision price. Every order retains the decision timestamp, schedule, broker events, fills and implementation-shortfall breakdown.
 
 **Expected cost (square-root law).**
 
@@ -1065,6 +1501,29 @@ $$
 $\mathrm{IS}=\sum_jq_j(p_j-p_d)+\left(Q-\sum_jq_j\right)(p_{\mathrm{end}}-p_d)$, decomposed into impact, delay and opportunity cost. It is used to recalibrate $Y$, closing the loop between the cost model in the optimiser and actual trading.
 
 ### 13.2 Hard limits independent of the models
+### Always-on safety-control diagram
+
+```mermaid
+flowchart LR
+    A[Proposed or live order] --> B[Per-name, gross, leverage and participation limits]
+    B --> C[Daily loss and drawdown checks]
+    C --> D[Model-reality divergence and market-state checks]
+    D --> E{Any hard limit breached?}
+    E -->|No| F[Permit activity within approved limits]
+    E -->|Yes| G[Block new risk, cancel orders or flatten as policy requires]
+    G --> H[Log incident and require manual review before restart]
+
+    classDef check fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef safe fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class A,B,C,D check;
+    class E gate;
+    class F safe;
+    class G,H stop;
+```
+
+These controls operate independently of forecasts, model weights and optimiser output. A halt requires deliberate review; a model cannot clear its own halt.
 
 These rules are deliberately simple and live outside the forecasting logic, so that a model error cannot override them:
 
@@ -1079,6 +1538,40 @@ These rules are deliberately simple and live outside the forecasting logic, so t
 A halt requires deliberate manual review before trading resumes.
 
 ### 13.3 Monitoring
+### Stage 7 process diagram: monitoring, reporting and controlled learning
+
+```mermaid
+flowchart TB
+    A[Run records, forecasts, realised returns, fills, costs and positions] --> B[Calculate P&L attribution, calibration, feature drift, risk backtests and execution error]
+    B --> C[Generate per-security and per-sleeve plots from versioned run data]
+    B --> D[Create narrative report from structured results and verified metrics only]
+    B --> E{Monitoring threshold or material degradation triggered?}
+    E -->|No| F[Continue monitoring and retain current champion]
+    E -->|Yes| G[Apply approved safe response: recalibrate, reduce exposure or switch risk engine]
+    G --> H[Train and evaluate a challenger in walk-forward tests]
+    H --> I[Run challenger in shadow without order authority]
+    I --> J{G7 approved and calibration intact?}
+    J -->|Yes| K[Versioned promotion for future runs with rollback plan]
+    J -->|No or unclear| L[Retain champion; document failure and continue monitoring]
+    F --> M([Auditable run package])
+    D --> M
+    C --> M
+    K --> M
+    L --> M
+    M --> N[Review attribution and update research hypotheses]
+    N --> O[Universe membership unchanged unless deliberate re-formation is approved]
+
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef process fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
+    classDef safe fill:#f3f4f6,stroke:#6b7280,color:#202938;
+    class A data;
+    class B,C,D,G,H,I,N,O process;
+    class E,J gate;
+    class F,K,L,M safe;
+```
+
+The AI/ML narrative layer may explain recorded results, but it cannot invent metrics, alter gate outcomes or authorize trades. A promoted challenger applies only to future runs; the frozen universe is changed only through an explicitly approved re-formation.
 
 | Type | Method | Threshold |
 |---|---|---|
@@ -1173,9 +1666,98 @@ Attribution results feed back into Stage 2E (combination weights) and the alloca
 ### 15.3 Open questions that shape the next design step
 
 1. **Capital and instruments:** cash equities on margin, CFDs or futures? This determines margin mechanics, financing cost and the realistic leverage ceiling.
-2. **Maximum tolerable drawdown** and target volatility per sleeve: these set $\mathrm{DD}_{\max}$ and $\sigma^\ast$ in the leverage rule.
+2. **Maximum tolerable drawdown** and target volatility per sleeve: these set the maximum drawdown parameter (DD max) and target volatility parameter (sigma star) in the leverage rule.
 3. **Broker and data provider for US markets:** the reference architecture covers ASX through LSEG; US intraday data depth and cost need confirming.
 4. **News sources and latency:** licensed wire versus exchange announcements only; this decides whether the intraday news signal can be directional.
 5. **Short selling:** whether sleeves are long-only or long-short, given ASX borrow constraints.
 6. **Re-formation policy:** the design assumes a permanent universe, re-formed only by deliberate decision (e.g. when a sleeve falls below 70% of its formation count). A fixed schedule (e.g. annual re-formation, frozen in between) is the main alternative.
 7. **Definition of "highest tier":** whether you want a fixed set of model families or an open challenger process governed by the eligibility and promotion gates (the design above assumes the latter).
+
+
+---
+
+## 16. Operating Contract and Run Outputs
+
+> **Principle.** Every run must be reproducible, auditable and safe to fail. A partial or stale run must never silently become a trade instruction.
+
+### 16.1 Minimum run contract
+
+Each pipeline run should create a unique `run_id` and record:
+
+| Record | Minimum fields |
+|---|---|
+| Run identity | `run_id`, start/end timestamps, code revision, configuration version |
+| Decision context | Market, sleeve, decision cut-off, trading calendar, timezone and forecast horizons |
+| Data lineage | Provider, dataset/table, extraction timestamp, observation timestamp, knowledge-time rule, row counts and schema version |
+| Universe | Formation-universe version, eligible names, safety exits and exclusion reason codes |
+| Models | Model name/version, training window, feature version, fit status, convergence diagnostics and eligibility decision |
+| Validation | Fold definitions, purge/embargo settings, benchmark results, calibration, net-of-cost metrics and number of configurations tried |
+| Portfolio | Forecasts, target weights, current weights, risk contributions, expected costs and binding constraints |
+| Decision | `TRADE`, `REDUCE`, `HOLD` or `NO-TRADE`, with machine-readable reason codes |
+| Execution | Order intent, submitted/filled quantities, timestamps, fill prices, fees, rejected/cancelled orders and implementation shortfall |
+| Outputs | Tables, diagnostics, per-security plots, sleeve-level plots, warnings and final run report |
+
+### 16.2 Required run outcomes
+
+A run should finish in one of three explicit states:
+
+- **PASS:** all required inputs, models, validation checks and risk gates passed; eligible trade instructions may be generated.
+- **DEGRADED:** a non-critical component failed. The run may produce research diagnostics, but trading is allowed only if a pre-approved fallback exists and all safety gates still pass.
+- **BLOCKED:** a critical data, model, risk, execution or reconciliation condition failed. No new risk may be initiated.
+
+The status must be machine-readable and included prominently in the run report. A missing output is not a pass, and a warning must not be silently converted into success.
+
+### 16.3 Reporting and visual diagnostics
+
+Each completed run should produce a human-readable narrative report from structured results, not from unverified model-generated claims. An AI/ML summariser may explain measured outcomes, but it must not invent figures, override gate outcomes or issue orders. The report should include:
+
+- Executive summary and run status.
+- Market and macro regime snapshots.
+- Per-sleeve and per-security forecast/actual comparisons.
+- Forecast calibration, benchmark comparisons and net-of-cost performance.
+- Portfolio exposures, expected shortfall, stress losses, leverage and margin headroom.
+- Predicted versus realised transaction costs and implementation shortfall.
+- Model/data warnings, excluded signals and reasons for `NO-TRADE`.
+- Reproducibility details, including configuration and code versions.
+
+All plotted series must be traceable to the same run's data and configuration. Plot generation failure should be reported; it must not invalidate or conceal risk-gate failures.
+
+### 16.4 Safe failure and fallback policy
+
+Fallbacks must be explicitly configured and tested in advance. Examples include reverting to a simpler validated volatility forecast or holding current positions when optimisation is infeasible. A fallback must never bypass data-integrity, margin, hard exposure, kill-switch or execution-reconciliation checks. If no valid fallback exists, the affected sleeve is blocked.
+
+---
+
+## 17. Implementation Roadmap and Readiness Gates
+
+The full architecture should be implemented incrementally. The order below prioritises data correctness and risk controls before model complexity.
+
+| Phase | Deliverable | Acceptance condition |
+|---|---|---|
+| 1. Data foundation | Point-in-time market/fundamental/macro/news schemas; calendars, identifiers, corporate actions and lineage | Reproducible as-of queries; automated schema, timestamp, duplicate and unit tests pass |
+| 2. Baseline research | Simple return and volatility benchmarks; transaction-cost assumptions; frozen universe builder | Survivorship and look-ahead tests pass; baseline results can be reproduced from a clean run |
+| 3. Validation framework | Walk-forward splits, label purging, embargo, nested tuning and trial registry | Synthetic leakage tests fail as expected; all experiments record their search count and fold boundaries |
+| 4. Forecast layers | Financial, macro, micro and news modules behind a shared quantile interface | Each module beats or is compared fairly with an appropriate baseline; calibration and failure states are recorded |
+| 5. Risk and optimisation | Covariance/ES engines, stress scenarios, cost-aware optimiser and sleeve allocator | Constraint tests pass; infeasible optimisation cannot silently produce tradable weights |
+| 6. Execution simulation | Order scheduling, fill/cost model and implementation-shortfall attribution | Backtest assumptions are documented; costs and fills are stress-tested against adverse conditions |
+| 7. Paper trading | End-to-end scheduled runs with live data but no capital at risk | Reconciliation, latency, stale-data, restart and kill-switch tests pass over a pre-agreed observation period |
+| 8. Controlled deployment | Small approved capital allocation, explicit broker permissions and monitoring | Written sign-off from the system owner; all risk limits, rollback procedures and incident handling tested |
+| 9. Challenger lifecycle | Shadow models, champion/challenger comparison and controlled promotion | Promotion criteria met out of sample; versioned rollback is available |
+
+### 17.1 Definition of done for a stage
+
+A stage is not complete merely because its script runs. It is complete when it has:
+
+- A documented input/output contract and schema.
+- Unit tests and failure-path tests.
+- Point-in-time and timezone handling where applicable.
+- Deterministic configuration and versioned dependencies.
+- Logging, reason codes and reproducible outputs.
+- A benchmark or invariant that can detect degradation.
+- A defined downstream response when the stage fails.
+
+### 17.2 Decisions that must be approved before live trading
+
+The open questions in Section 15.3 should be resolved into a versioned configuration, including the instruments and broker, capital base, target volatility, maximum drawdown, per-name/sector/gross limits, permitted shorting, margin policy, data entitlements, trading hours and emergency shutdown procedure. Default numbers in this document are placeholders until approved and tested.
+
+**Final design rule:** research models may propose forecasts; only the validated decision pipeline may propose target positions; and only the independent risk and execution controls may authorise orders.
