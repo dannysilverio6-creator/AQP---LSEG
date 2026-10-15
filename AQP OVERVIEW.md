@@ -1,13 +1,15 @@
-# ADVANCE QUANTITATIVE PIPELINE OVERVIEW
+# Multi-Market Quantitative Investment Pipeline
 
-**Version 9: concise architecture, stage workflows and control specification**
+**Version 12: terminology-reviewed architecture, stage workflows and control specification**
 
 > **Status:** Research and system-design specification, not evidence of profitability or production readiness. Model thresholds are provisional. Live use requires tested implementation, validated data and broker interfaces, approved risk limits, operational testing and explicit sign-off.
+>
+> **Math rendering:** Formulas use LaTeX Markdown (`$...$` for inline maths and `$$...$$` for display equations). Use a math-enabled Markdown preview if commands such as `\mathrm` display literally.
 
 | Scope | Design |
 |---|---|
-| Markets | Any (ASX & US) |
-| Sleeves | ANY (ASX interday, US interday, ASX intraday, US intraday) |
+| Markets | ASX and US equities |
+| Sleeves | ASX interday, US interday, ASX intraday, US intraday |
 | Forecast layers | Financial, macroeconomic, microeconomic and news-derived |
 | Main flow | Data → fixed research universe → forecasts → validation → risk/optimisation → leverage/pre-trade gates → execution → monitoring/reporting |
 | Out of scope | Full source code, provider API instructions and production runbooks |
@@ -24,88 +26,91 @@ This is a **gated research-to-execution system**, not a single predictive model.
 6. Generate reproducible run records, plots and a narrative report from measured outputs.
 7. Promote challengers only after validation, shadow testing, approval and a rollback plan.
 
-A sophisticated design does not establish an economic edge. Test the complete system on chronological out-of-sample data and realistic costs before paper trading or live deployment.
+A sophisticated design does not establish an economic edge. Test the complete system on chronological out-of-sample data and realistic transaction costs before paper trading or live deployment.
+
+### Terminology convention
+
+Recognised finance, econometrics, risk and market-structure terminology is used where a stable term exists. That does not make every research method a regulatory requirement. Stage names, gate IDs G1–G7 and the **Company Reference and Exposure Dataset** are project-specific architecture labels, not external standards. “Geographic revenue/cost exposure” is descriptive terminology. Model choices and numerical thresholds are research design decisions, not universal industry standards.
 
 ## Contents
 
 1. [Pipeline at a Glance](#1-pipeline-at-a-glance)
 2. [Design Principles and Gates](#2-design-principles-and-gates)
-3. [Stage 0: Point-in-Time Data and Company Knowledge](#3-stage-0-point-in-time-data-and-the-company-knowledge-layer)
-4. [Stage 1: Universe and Archetype Selection](#4-stage-1-archetype-builder)
-5. [Stage 2: Common Forecast Contract](#5-stage-2-the-common-forecast-representation)
-6. [Stage 2A: Financial Models](#6-stage-2a-financial-model)
-7. [Stage 2B: Macro Models](#7-stage-2b-macro-model-economy-stickers)
-8. [Stage 2C: Micro Models](#8-stage-2c-micro-model-market-labels)
-9. [Stage 2D: News Models](#9-stage-2d-news-model-llm-extraction)
+3. [Stage 0: Point-in-Time Data and Company Reference Data](#3-stage-0-point-in-time-data-and-company-reference-data)
+4. [Stage 1: Universe Selection and Strategy Classification](#4-stage-1-universe-selection-and-strategy-classification)
+5. [Stage 2: Common Forecast Schema](#5-stage-2-common-forecast-schema)
+6. [Stage 2A: Financial Forecast and Distress Model](#6-stage-2a-financial-forecast-and-distress-model)
+7. [Stage 2B: Macroeconomic Exposure and Regime Model](#7-stage-2b-macroeconomic-exposure-and-regime-model)
+8. [Stage 2C: Firm Fundamentals and Market Microstructure](#8-stage-2c-firm-fundamentals-and-market-microstructure)
+9. [Stage 2D: News Event Extraction and Modelling](#9-stage-2d-news-event-extraction-and-modelling)
 10. [Stage 2E: Validation and Combination](#10-stage-2e-validation-eligibility-and-signal-combination)
 11. [Stages 3–4: Risk, Optimisation and Sleeve Allocation](#11-stages-34-risk-model-optimiser-and-sleeve-allocator)
 12. [Stage 5: Leverage and Position Report](#12-stage-5-leverage-and-position-report)
 13. [Stages 6–7: Execution, Controls and Monitoring](#13-stages-67-execution-hard-limits-monitoring-and-learning)
 14. [Core Design Decisions](#14-core-design-decisions)
-15. [Notation and Open Decisions](#15-notation-glossary-and-open-questions)
+15. [Notation and Open Decisions](#15-notation-glossary-and-open-decisions)
 16. [Run Contract and Outputs](#16-operating-contract-and-run-outputs)
 17. [Implementation Roadmap](#17-implementation-roadmap-and-readiness-gates)
 
 ## 1. Pipeline at a Glance
 
-Use this as the system map. The stage diagrams in Sections 3–13 show the detailed process and hand-off.
+Use this as the system map. The diagrams in Sections 3–13 show the process and stage hand-offs.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    START([RUN CONFIGURATION<br/>Choose date and sleeve<br/>ASX / US · Interday / Intraday])
-
-    DATA["0 · DATA FOUNDATION<br/>Point-in-time inputs · lineage · vintage history<br/>Company knowledge layer · data-integrity firewall G2"]
-    UNIVERSE["1 · COMPANY SELECTION<br/>Survival · liquidity · history · archetype fit · G1<br/>Versioned universe; safety exits only"]
-
-    subgraph MODELS["2 · FORECAST IN PARALLEL"]
-        direction LR
-        FIN["FINANCIAL<br/>Returns · volatility · distress"]
-        MACRO["MACROECONOMIC<br/>Regimes · economy stickers"]
-        MICRO["MICROECONOMIC<br/>Peers · order flow · spreads"]
-        NEWS["NEWS<br/>Events · direction · decay"]
+    START([RUN CONFIGURATION<br/>Decision date and sleeve<br/>ASX / US · Interday / Intraday])
+    DATA["0 · DATA FOUNDATION<br/>Point-in-time data · lineage<br/>Company reference/exposure data · G2"]
+    UNIVERSE["1 · UNIVERSE SELECTION<br/>Corporate status · liquidity · history<br/>Strategy fit · G1 · versioned membership"]
+    subgraph MODELS["2 · FORECAST LAYERS IN PARALLEL"]
+        direction TB
+        FIN["FINANCIAL<br/>Return distribution · volatility · distress"]
+        MACRO["MACROECONOMIC<br/>Regimes · geographic exposure"]
+        MICRO["FIRM ECONOMICS / MICROSTRUCTURE<br/>Peers · order flow · market impact"]
+        NEWS["NEWS EVENTS<br/>Novelty · impact · persistence"]
     end
-
-    CONTRACT["COMMON FORECAST FORMAT<br/>Horizon · timestamp · quantiles<br/>Uncertainty · model version · data lineage"]
-    VALIDATE["3 · VALIDATE AND COMBINE · G3<br/>Walk-forward tests · calibration · overfit controls<br/>Combine eligible forecasts only"]
-    PORTFOLIO["4 · PORTFOLIO CONSTRUCTION · G4<br/>Risk model + cost-aware optimiser<br/>Liquidity · concentration · stress limits"]
-    PRETRADE["5 · POSITION AND PRE-TRADE CONTROLS · G5 / G6<br/>Position sizing · leverage · margin headroom<br/>Final data, model, risk and kill-switch check"]
-    EXECUTE["6 · EXECUTION<br/>Order sizing · routing · fills · slippage<br/>Independent order and position limits remain active"]
-    REPORT["7 · MONITOR AND REPORT<br/>P&L · forecast drift · costs · incidents<br/>Plots · structured run record · narrative report"]
+    CONTRACT["COMMON FORECAST SCHEMA<br/>Horizon · timestamp · quantiles<br/>Model version · data lineage"]
+    VALIDATE["3 · VALIDATION AND COMBINATION · G3<br/>Walk-forward tests · calibration<br/>Eligible forecasts only"]
+    PORTFOLIO["4 · PORTFOLIO CONSTRUCTION · G4<br/>Risk model · cost-aware optimiser<br/>Concentration · liquidity · stress"]
+    PRETRADE["5 · POSITION AND PRE-TRADE CONTROLS · G5/G6<br/>Sizing · leverage · margin headroom<br/>Final checks and no-trade decision"]
+    EXECUTE["6 · EXECUTION<br/>Orders · fills · slippage<br/>Independent order and position limits"]
+    REPORT["7 · MONITORING AND REPORTING<br/>P&L · forecast drift · costs · incidents<br/>Plots · run record · narrative report"]
     END([END OF RUN])
-
-    START --> DATA --> UNIVERSE --> MODELS
+    START --> DATA --> UNIVERSE
+    UNIVERSE --> FIN
+    UNIVERSE --> MACRO
+    UNIVERSE --> MICRO
+    UNIVERSE --> NEWS
     FIN --> CONTRACT
     MACRO --> CONTRACT
     MICRO --> CONTRACT
     NEWS --> CONTRACT
     CONTRACT --> VALIDATE --> PORTFOLIO --> PRETRADE --> EXECUTE --> REPORT --> END
-
-    classDef terminal fill:#f3f4f6,stroke:#6b7280,color:#202938,stroke-width:1px;
-    classDef stage fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
-    classDef forecast fill:#edf7ed,stroke:#54845e,color:#1d4026,stroke-width:1px;
+    classDef terminal fill:#f3f4f6,stroke:#6b7280,color:#202938;
+    classDef stage fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef forecast fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef control fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
-
     class START,END terminal;
     class DATA,UNIVERSE,CONTRACT,VALIDATE,PORTFOLIO,EXECUTE,REPORT stage;
     class FIN,MACRO,MICRO,NEWS forecast;
     class PRETRADE control;
 ```
 
-### Model improvement loop
+### Approved-model / candidate-model lifecycle
 
 Monitoring may trigger a challenger review, but a challenger never replaces the production model automatically.
 
 ```mermaid
-flowchart LR
-    MON["MONITOR<br/>Detect drift or degradation"] --> TEST["TEST CHALLENGER<br/>Out-of-sample + shadow run"]
-    TEST --> G7{"G7<br/>Approved?"}
-    G7 -->|Yes| RELEASE["VERSIONED RELEASE<br/>Approval + rollback plan"]
-    G7 -->|No / unclear| KEEP["KEEP CURRENT MODEL<br/>Continue monitoring"]
-
-    classDef review fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+flowchart TB
+    MON["MONITOR<br/>Detect drift or degradation"] --> TEST["ASSESS CHALLENGER<br/>Out-of-sample tests and shadow run"]
+    TEST --> G7{G7<br/>Promotion criteria met?}
+    G7 -->|Yes| RELEASE["VERSIONED RELEASE<br/>Independent approval and rollback plan"]
+    G7 -->|No / unclear| KEEP["RETAIN CURRENT MODEL<br/>Continue monitoring"]
+    classDef review fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
-    classDef safe fill:#edf7ed,stroke:#54845e,color:#1d4026,stroke-width:1px;
-    classDef retain fill:#f3f4f6,stroke:#6b7280,color:#202938,stroke-width:1px;
+    classDef safe fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef retain fill:#f3f4f6,stroke:#6b7280,color:#202938;
     class MON,TEST review;
     class G7 gate;
     class RELEASE safe;
@@ -121,7 +126,7 @@ flowchart LR
 | ASX intraday | ASX / AUD | Spread, tick size and available depth |
 | US intraday | US / USD | Execution costs and competition for short-horizon signals |
 
-Sleeves share infrastructure but keep separate calendars, cost assumptions, data depth and risk budgets.
+Portfolio sleeves (separately governed sub-portfolios) share infrastructure but keep separate calendars, cost assumptions, data depth and risk budgets.
 
 | Forecast layer | Interday role | Intraday role |
 |---|---|---|
@@ -134,44 +139,49 @@ Sleeves share infrastructure but keep separate calendars, cost assumptions, data
 
 | Principle | Implementation |
 |---|---|
-| Point-in-time | Input knowledge time must be no later than decision time. Filtered states only; smoothing is for retrospective analysis. |
+| Point-in-time | Input availability timestamp must be no later than decision time. Filtered states only; smoothing is for retrospective analysis. |
 | Common forecast format | Each model produces a predictive distribution and lineage metadata. |
 | Validate before weighting | Fit success is not proof of out-of-sample skill or economic value. |
-| Conservative credible risk | Use the most conservative risk estimate that passes its own backtests. |
-| Default NO-TRADE | Trade only when required checks pass and expected benefit exceeds expected cost. |
+| Conservative, validated risk estimates | Use the most conservative risk estimate that passes its own backtests. |
+| Default no-trade | Trade only when required checks pass and expected benefit exceeds expected cost. |
 | Separate sizing and leverage | Optimiser chooses relative weights; a separate rule controls total exposure. |
 | Charge for search | Record trials and account for multiple testing and backtest overfitting. |
-| Static universe | Formation runs once per universe version; only specified safety exits may remove names. |
+| Fixed, versioned universe | Formation runs once per version; only specified mandatory removal rules may remove names. |
 
 | Gate | Pass condition | Failure action |
 |---|---|---|
-| **G1 Universe** | Formation filters pass; existing members meet safety rules | Reject at formation or log a safety exit |
-| **G2 Data integrity** | No look-ahead, schema, unit, timezone or freshness breach | Quarantine affected name or block affected branch/run |
-| **G3 Model eligibility** | Stable, calibrated, out-of-sample skill and positive net-of-cost evidence | Exclude model; no eligible signal means NO-TRADE |
-| **G4 Portfolio risk** | Volatility, expected shortfall, concentration, liquidity and stress limits pass | Re-optimise within approved relaxations or scale toward cash |
-| **G5 Leverage/margin** | Exposure, financing and stressed margin stay within approved limits | Reduce gross exposure or block new risk |
-| **G6 Final no-trade** | Data, model, risk, liquidity, market-state and kill-switch checks pass | Block the order; risk-reducing actions only if policy permits |
-| **G7 Promotion** | Challenger passes independent validation and shadow period | Keep current champion |
+| **G1 Universe gate (project-defined)** | Formation filters pass; existing members meet safety rules | Reject at formation or log a safety exit |
+| **G2 Data-integrity gate (project-defined)** | No look-ahead, schema, unit, timezone or freshness breach | Quarantine affected name or block affected branch/run |
+| **G3 Model-eligibility gate (project-defined)** | Stable, calibrated, out-of-sample skill and positive net-of-cost evidence | Exclude model; no eligible signal means no trade |
+| **G4 Portfolio-risk gate (project-defined)** | Volatility, expected shortfall, concentration, liquidity and stress limits pass | Re-optimise within approved relaxations or scale toward cash |
+| **G5 Leverage/margin gate (project-defined)** | Exposure, financing and stressed margin stay within approved limits | Reduce gross exposure or block new risk |
+| **G6 Final trade-eligibility gate (project-defined)** | Data, model, risk, liquidity, market-state and kill-switch checks pass | Block the order; risk-reducing actions only if policy permits |
+| **G7 Model-promotion gate (project-defined)** | Challenger passes independent validation and shadow period | Keep the current approved model |
 
-**Run status:** `PASS` means checks passed; `DEGRADED` means an approved fallback is active; `BLOCKED` means a critical check failed. Every failure receives a machine-readable reason code. If no approved fallback exists, stop the affected run/sleeve.
+**Run status (project-defined labels):** `PASS` means checks passed; `DEGRADED` means an approved fallback is active; `BLOCKED` means a critical check failed. These are internal operational statuses, not exchange or regulatory classifications. Every failure receives a machine-readable reason code. If no approved fallback exists, stop the affected run/sleeve.
 
-## 3. Stage 0: Point-in-Time Data and the Company Knowledge Layer
+## 3. Stage 0: Point-in-Time Data and Company Reference Data
 
 **Purpose:** Build one reproducible, timestamped view of every company and relevant market input before calculating features or forecasts.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A([Run configuration and decision cut-off]) --> B[Load market, fundamentals, estimates, macro, news, membership, borrow and margin data]
-    B --> C[Standardise identifiers, calendars, currencies, units and time zones]
-    C --> D[Store valid time and knowledge time; retain historical vintages]
-    D --> E[Apply as-of query and corporate-action rules]
-    E --> F{G2 data-integrity checks pass?}
-    F -->|Block-level failure| G[Block affected branch or run; record reason code]
-    F -->|Name-specific failure| H[Quarantine affected name and retain audit trail]
-    F -->|Pass| I[Build versioned Company Knowledge Layer]
-    I --> J[Economy stickers, market labels, peer clusters, relationship graph and membership history]
-    J --> K([Validated point-in-time data and features with lineage])
-
+    A([Run configuration and decision cut-off])
+    B["Load market, fundamentals, macro,<br/>news, membership, borrow and margin data"]
+    C["Standardise identifiers, calendars,<br/>currencies, units and time zones"]
+    D["Record valid time and availability time;<br/>retain historical data vintages"]
+    E["Apply as-of queries and corporate-action rules"]
+    F{G2<br/>Data integrity passed?}
+    G["Block affected branch/run;<br/>record reason code"]
+    H["Quarantine affected security;<br/>retain audit trail"]
+    I["Build versioned Company Reference<br/>and Exposure Dataset"]
+    J["Create geographic exposures and classifications;<br/>peer groups, relationship graph,<br/>and membership history"]
+    K([Validated point-in-time data and features])
+    A --> B --> C --> D --> E --> F
+    F -->|Critical failure| G
+    F -->|Security-specific issue| H
+    F -->|Pass| I --> J --> K
     classDef input fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef process fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
@@ -184,7 +194,7 @@ flowchart TB
 
 ### Data timing and integrity
 
-Store each fact with **valid time** (period described) and **knowledge time** (when it became available). A query as of time `t` must return only versions with knowledge time `k ≤ t`; restatements create new vintages rather than overwriting history.
+Store each fact with **valid time** (period described) and **availability timestamp** (when the system could first have used it). A query as of time `t` must return only versions with availability timestamp `a ≤ t`; restatements create new vintages rather than overwriting history.
 
 | Source | Timing rule |
 |---|---|
@@ -204,85 +214,95 @@ Raw prices are preserved. Adjustment factors for splits, rights and dividends ar
 | Quarantine | Stale or incomplete history, unexplained extreme return, unreconciled corporate action | Exclude affected name for this run |
 | Warn | Repeated closes, revision bursts | Record warning; do not silently suppress it |
 
-### Company Knowledge Layer
+### Company Reference and Exposure Dataset
 
 | Component | Contents | Downstream use |
 |---|---|---|
-| Economy stickers | Dated revenue and cost exposure vectors by economy | Macro models, FX and stress tests |
-| Market labels | Industry, product market, listing venue and currency | Universe selection, peer models and constraints |
-| Peer clusters | Label- and data-based peer groups | Pooling and relative valuation |
+| Geographic revenue and cost exposures | Dated revenue-share and cost-share vectors by economy | Macroeconomic models, currency analysis and stress tests |
+| Industry/sector and product-market classifications | Sector, industry, product-market, listing venue and trading currency | Universe selection, peer models and constraints |
+| Peer clusters | Classification- and data-based peer groups | Pooling and relative valuation |
 | Relationship graph | Directed customer, supplier, competitor and shared-input links | News propagation, macro transmission and contagion tests |
 | Membership history | Listing, delisting and identity changes | Survivorship-safe universes |
 
-Keep revenue and cost stickers separately: a company may sell in one economy and incur costs in another. Version all components point-in-time.
+Keep geographic revenue and cost exposures separate: a company may generate revenue in one economy and incur costs in another. Version all components point-in-time.
 
-## 4. Stage 1: Archetype Builder
+## 4. Stage 1: Universe Selection and Strategy Classification
 
 **Purpose:** Select companies suitable for analysis, not forecast returns. Historical formation must include later-delisted companies to avoid survivorship bias.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A([Formation date and market scope]) --> B[Build point-in-time candidate list, including later-delisted firms in historical tests]
-    B --> C[Apply hard survival and distress filters]
-    C --> D{Pass hard survival rules?}
-    D -->|No| X[Reject with reason code: DIST, HIST or other rule]
-    D -->|Yes| E[Apply sleeve-specific liquidity and tradability screens]
-    E --> F{Tradable at required horizon and size?}
-    F -->|No| Y[Reject with reason code: LIQ or TRADABILITY]
-    F -->|Yes| G[Test data depth, forecastability and stability]
-    G --> H[Assign one or more strategy archetypes]
-    H --> I[Standardise variables within appropriate peer or sector groups]
-    I --> J[Combine category scores and rank eligible names]
-    J --> K{Pass admission threshold and sleeve capacity rules?}
-    K -->|No| Z[Reject with formation scores and reason code]
-    K -->|Yes| L[Assign fixed data tier and create versioned universe]
-    L --> M([Frozen research universe])
-    M --> N[Monitor safety exits only: distress, delisting, suspension, takeover or liquidity collapse]
-    N --> O{Safety exit triggered?}
-    O -->|Yes| P[Log exit and retain history; do not replace or re-enter]
-    O -->|No| M
-
+    A([Formation date and market scope])
+    B["Build point-in-time candidates;<br/>include later-delisted firms in historical tests"]
+    C["Apply listing-status and<br/>financial-distress filters"]
+    D{Pass corporate-status<br/>and distress criteria?}
+    X["Reject and record reason code"]
+    E["Apply sleeve-specific liquidity<br/>and tradability screens"]
+    F{Tradable at intended<br/>horizon and position size?}
+    Y["Reject: liquidity or tradability"]
+    G["Check data history, quality<br/>and feature stability"]
+    H["Assign strategy classifications:<br/>trend, quality-value, pairs, event, intraday"]
+    I["Standardise by sector/peer group;<br/>calculate category and composite scores"]
+    J{Pass admission threshold<br/>and research capacity limit?}
+    Z["Reject and retain scores/reason"]
+    L["Create fixed, versioned research universe"]
+    M["Monitor mandatory removals:<br/>delisting, suspension, distress, liquidity collapse"]
+    N{Mandatory removal triggered?}
+    P["Log removal; retain historical record;<br/>do not silently replace or re-enter"]
+    A --> B --> C --> D
+    D -->|No| X
+    D -->|Yes| E --> F
+    F -->|No| Y
+    F -->|Yes| G --> H --> I --> J
+    J -->|No| Z
+    J -->|Yes| L --> M --> N
+    N -->|Yes| P
+    N -->|No| Q([Continue monitoring])
     classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef decision fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef reject fill:#fce8e6,stroke:#b3261e,color:#5f1410;
     classDef output fill:#edf7ed,stroke:#54845e,color:#1d4026;
-    class A,B,C,E,G,H,I,J,N process;
-    class D,F,K,O decision;
+    class A,B,C,E,G,H,I,M process;
+    class D,F,J,N decision;
     class X,Y,Z,P reject;
-    class L,M output;
+    class L output;
 ```
 
-### Hard filters and score
+### Eligibility filters and composite score
 
-The order is: **survival/distress → liquidity/tradability → data depth and stability → archetype fit → category score → admission**. Rejection reasons are recorded (for example `DIST`, `LIQ`, `HIST`, `DATA`). Banks and insurers require sector-appropriate capital/funding metrics rather than generic debt/EBITDA rules.
+The order is: **corporate eligibility/distress risk → liquidity/tradability → data depth and stability → strategy classification → category score → admission**. Rejection reasons are recorded (for example `DIST`, `LIQ`, `HIST`, `DATA`). Banks and insurers require sector-appropriate capital/funding metrics rather than generic debt/EBITDA rules.
 
 | Category | Example measures |
 |---|---|
-| Survival | 12-month hazard-model distress probability, distance to default, interest cover, refinancing wall, cash runway |
-| Liquidity | Median daily traded value (MDTV), Amihud illiquidity, spread, zero-volume ratio, order-book depth |
-| Stability | Beta-break tests, volatility forecastability and usable history |
-| Business/market suitability | Profitability/cash conversion, valuation, trend, peer relationships and event coverage as relevant to the archetype |
+| Financial distress and corporate status | 12-month probability of default estimated with a hazard model, distance to default, interest cover, concentrated debt maturities, cash runway |
+| Liquidity | Median daily dollar value traded, Amihud illiquidity ratio, bid–ask spread, zero-volume ratio and order-book depth |
+| Stability | Structural-break tests for market beta, volatility-model performance and usable history |
+| Business/market suitability | Profitability/cash conversion, valuation, trend, peer relationships and event coverage as relevant to the strategy class |
 | Operational/data coverage | Identifier quality, publication times, corporate actions, borrow data and intraday quote quality |
 
-Metrics are robustly standardised within sector/peer group, direction-aligned and combined at category level so a category with more variables does not dominate by count:
+Metrics are robustly standardised within sector/peer group, direction-aligned and combined first within categories, then across categories. Here MAD is median absolute deviation, Φ is the standard normal cumulative distribution function, and $d_j$ is +1 when higher values are preferable or −1 when lower values are preferable:
 
 $$
-z_{ij}=\frac{x_{ij}-\operatorname{median}_{s(i)}(x_j)}{1.4826\,\operatorname{MAD}_{s(i)}(x_j)},\qquad q_i=\sum_j\omega_j\Phi(z_{ij}),\quad \sum_j\omega_j=1.
+z_{ij}=\frac{x_{ij}-\operatorname{median}_{s(i)}(x_j)}
+{1.4826\,\operatorname{MAD}_{s(i)}(x_j)},\qquad
+C_{ik}=\sum_{j\in k}\omega_{jk}\Phi(d_jz_{ij}),\qquad
+S_i=100\sum_k w_k C_{ik},\qquad \sum_{j\in k}\omega_{jk}=1,\quad \sum_k w_k=1.
 $$
 
-A company is admitted only if it passes all hard gates and clears the configured formation threshold/capacity for that sleeve. Scores and membership are then frozen for that universe version.
+A company is admitted only if it passes all hard gates and clears the configured formation threshold/capacity for that sleeve. Scores and membership remain fixed for that universe version.
 
-| Archetype | Typical fit |
+| Strategy classification | Typical characteristics |
 |---|---|
-| Momentum/trend | Persistent 12–1 month trend, adequate liquidity, manageable idiosyncratic noise |
+| Momentum/trend | Persistent 12–1 momentum (trailing 12-month return excluding the most recent month), adequate liquidity, manageable idiosyncratic noise |
 | Quality-value | Profitability, cash conversion, low accruals and sector-relative valuation |
 | Mean-reversion/pairs | Stable peer relationship and spread half-life; borrow/costs permit trading |
 | Event-driven | Reliable event stream, measurable announcement responses and sufficient coverage |
 | Intraday liquid large-cap | Tight spreads, depth, activity and potentially forecastable short-horizon volatility |
 
-### Static membership and safety exits
+### Fixed membership and mandatory removals
 
-No score-based removal, replacement or re-entry is allowed inside a universe version. A deliberate re-formation creates a new version and requires validation.
+No score-based removal, replacement or re-entry is allowed within a universe version. A deliberate re-formation creates a new version and requires validation.
 
 | Exit code | Trigger |
 |---|---|
@@ -293,7 +313,7 @@ No score-based removal, replacement or re-entry is allowed inside a universe ver
 
 Exited names stay in historical data and attribution. Positions are closed through normal execution controls.
 
-### Data-depth tiers
+### Data-coverage tiers
 
 | Tier | Typical allocation | Data use |
 |---|---|---|
@@ -303,24 +323,24 @@ Exited names stay in historical data and attribution. Positions are closed throu
 
 Sizes are budget examples, not fixed requirements. Allocate expensive data by expected analytical value, signal need, storage and provider cost; tier membership stays fixed within the universe version.
 
-## 5. Stage 2: The Common Forecast Representation
+## 5. Stage 2: Common Forecast Schema
 
-All model families must use one adapter so forecasts can be compared, combined, calibrated and passed into risk calculations consistently.
+All model families use the same forecast schema/interface so forecasts can be compared, combined, calibrated and passed into risk calculations consistently.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Financial model output] --> F[Forecast adapter]
-    B[Macro model output] --> F
-    C[Micro model output] --> F
-    D[News model output] --> F
-    F --> G[Attach security, decision time, horizon, model version and data lineage]
-    G --> H[Map outputs to common excess-return target and quantile grid]
-    H --> I{Schema, timestamps and target definition valid?}
-    I -->|No| X[Reject output; log contract failure]
-    I -->|Yes| J[Check quantile ordering and repair crossings by monotone rearrangement]
-    J --> K[Store label end date for purging and embargo]
-    K --> L([Comparable forecast distributions for Stage 2E])
-
+    A[Financial forecast] --> F["Common forecast interface"]
+    B[Macroeconomic forecast] --> F
+    C[Firm/microstructure forecast] --> F
+    D[News-event forecast] --> F
+    F --> G["Attach security, decision time, horizon,<br/>target, model version and data lineage"]
+    G --> H["Map to common excess-return target<br/>and quantile grid"]
+    H --> I{Schema and timestamps valid?}
+    I -->|No| X[Reject and log contract failure]
+    I -->|Yes| J[Check quantile ordering]
+    J --> K[Record label end date for purging]
+    K --> L([Comparable predictive distributions])
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
@@ -337,7 +357,7 @@ $$
 \mathcal T=\{0.01,0.025,0.05,0.10,0.25,0.50,0.75,0.90,0.95,0.975,0.99\}.
 $$
 
-The return target is benchmark-relative excess return from the next executable session:
+The benchmark-relative excess-return target spans the selected forecast horizon, beginning after the decision point:
 
 $$
 y^{(h)}_{i,t}=\sum_{s=2}^{h+1}(r_{i,t+s}-r_{b,t+s}).
@@ -345,29 +365,29 @@ $$
 
 Each forecast includes security, decision timestamp, horizon, target definition, quantile values, model/version, training window, feature version, data lineage and label end date. Reject invalid timestamps/schema or crossing quantiles; record the label end date for purging.
 
-Use average quantile pinball loss as the primary distribution score; also track interval coverage, sharpness and the probability integral transform. More elaborate models are not admitted solely because they fit in sample.
+Use mean quantile pinball loss as the primary quantile score; also track interval coverage, sharpness and the probability integral transform (PIT). More elaborate models are not admitted solely because they fit in sample.
 
-## 6. Stage 2A: Financial Model
+## 6. Stage 2A: Financial Forecast and Distress Model
 
 **Purpose:** Estimate return distributions, volatility, distress and changing factor exposures. Stage 2E—not this stage—decides model eligibility.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Point-in-time prices, returns, fundamentals and benchmark data] --> B[Create leakage-safe features and target labels]
+    A["Point-in-time prices, returns,<br/>fundamentals and benchmark data"] --> B[Create leakage-safe features and labels]
     B --> C[Fit simple benchmarks first]
-    C --> D[Estimate return quantile candidates: regularised, tree-based or other tested models]
-    C --> E[Estimate volatility: GJR-GARCH, EGARCH and HAR when realised data exist]
-    C --> F[Estimate distress probability with firm-year hazard model]
-    C --> G[Estimate changing factor exposures with filtered state-space model]
-    D --> H[Check fit status, parameter stability and out-of-sample forecasts]
+    C --> D[Estimate return quantiles]
+    C --> E[Estimate daily/intraday volatility]
+    C --> F[Estimate 12-month distress/default risk]
+    C --> G[Estimate changing factor exposures]
+    D --> H["Check fit, stability and<br/>out-of-sample performance"]
     E --> H
     F --> H
     G --> H
-    H --> I[Check distress estimates and create survival-risk feature]
-    H --> J[Select candidate return and volatility outputs for common forecast adapter]
-    I --> K([Distress probability for risk and safety logic])
-    J --> L([Return quantiles and volatility forecasts to Stage 2])
-
+    H --> I["Produce distress-risk feature for<br/>safety controls and position reporting"]
+    H --> J["Send return quantiles and volatility<br/>forecasts to the common interface"]
+    I --> K([Distress-risk estimate])
+    J --> L([Forecast outputs for validation])
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef output fill:#eaf2f8,stroke:#477b9e,color:#19364a;
@@ -380,8 +400,8 @@ flowchart TB
 |---|---|---|
 | Return quantiles | Elastic net, quantile regression, gradient boosting (LightGBM/XGBoost), quantile random forest | Zero excess return, rolling mean and factor model |
 | Distress | Discrete-time firm-year hazard model | Compare with simple threshold/logistic baseline |
-| Daily volatility | GJR-GARCH or EGARCH with Student-t innovations | EWMA variance |
-| Intraday realised volatility | HAR model on realised variance/jumps | Daily-only volatility baseline |
+| Daily volatility | Glosten–Jagannathan–Runkle GARCH (GJR-GARCH) or exponential GARCH (EGARCH), with Student-t innovations | exponentially weighted moving average (EWMA) variance |
+| Intraday realised volatility | Heterogeneous Autoregressive model of Realised Volatility (HAR-RV), with realised variance and jump measures | Daily-only volatility baseline |
 | Dynamic exposures | Filtered state-space/Kalman model | Static rolling beta |
 
 **Distress hazard:**
@@ -390,38 +410,38 @@ $$
 P(\text{default in }(t,t+1]\mid x_{i,t})=\Lambda(\alpha(t)+\beta^\top x_{i,t}),
 $$
 
-with distance to default, profitability, leverage, cash runway, returns and volatility as inputs. Use the output for survival gates, optimiser penalties and position reporting.
+with distance to default, profitability, leverage, cash runway, returns and volatility as inputs. Use the output for distress-risk gates, optimiser penalties and position reporting.
 
-**GJR-GARCH:**
+**Glosten–Jagannathan–Runkle GARCH (GJR-GARCH):**
 
 $$
 r_t=\sigma_tz_t,\qquad \sigma_t^2=\omega+(\alpha+\gamma\mathbf1\{r_{t-1}<0\})r_{t-1}^2+\beta\sigma_{t-1}^2.
 $$
 
-Student-t innovations capture fat tails; `γ` captures asymmetric volatility response. For realised data, HAR uses daily, weekly and monthly realised-variance averages plus a jump component. Filter changing factor exposures using data available up to `t`; never use smoothed future-informed estimates for live signals.
+Student-t innovations capture fat tails; `γ` captures asymmetric volatility response. For intraday data, the HAR-RV uses daily, weekly and monthly realised-variance averages, optionally with a jump component. Filter changing factor exposures using data available up to `t`; never use smoothed future-informed estimates for live signals.
 
 **Feature groups:** earnings revisions/surprises, profitability and cash conversion, accruals, margins, investment and asset growth, leverage, valuation, momentum/reversal, idiosyncratic volatility and distress. Standardise features inside each training fold.
 
-## 7. Stage 2B: Macro Model (Economy Stickers)
+## 7. Stage 2B: Macroeconomic Exposure and Regime Model
 
 **Purpose:** Combine economy-level states with each firm's dated revenue/cost exposures and estimated sensitivities.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Point-in-time macro releases, market variables and consensus data] --> B[Standardise by economy and retain release vintages]
-    B --> C[Estimate economy states with dynamic factor models]
-    B --> D[Estimate regime probabilities and mixed-frequency nowcasts]
-    C --> E[Combine state estimates with each firm's dated revenue and cost stickers]
+    A["Point-in-time macro releases,<br/>market variables and consensus"] --> B["Standardise series and retain<br/>historical release vintages"]
+    B --> C["Estimate macroeconomic states<br/>with dynamic factor models"]
+    B --> D["Estimate regime probabilities<br/>and mixed-frequency nowcasts"]
+    C --> E[Combine states with dated company revenue/cost exposures]
     D --> E
     E --> F[Estimate company sensitivities to macro factors]
-    F --> G[Shrink noisy sensitivities toward sticker-based priors]
-    E --> H[Translate scheduled release surprises into event effects]
-    G --> I[Combine states, regimes, sensitivities and event effects]
+    F --> G["Shrink uncertain sensitivities toward<br/>geographic-exposure and industry priors"]
+    E --> H[Estimate scheduled-release surprise effects]
+    G --> I[Combine states, regimes and event effects]
     H --> I
-    I --> J[Propagate scenario shocks through sector and relationship channels]
-    J --> K[Include explicit FX and input-cost exposure]
-    K --> L([Macro contribution and predictive quantiles for Stage 2])
-
+    I --> J[Propagate scenarios through industry and relationship channels]
+    J --> K[Include currency and input-cost exposures]
+    K --> L([Macroeconomic contribution and predictive quantiles])
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef output fill:#eaf2f8,stroke:#477b9e,color:#19364a;
@@ -434,12 +454,20 @@ flowchart TB
 |---|---|
 | Economy states | Dynamic factor model for activity, inflation, rates, labour, credit and financial conditions; use the Kalman filter for ragged-edge releases |
 | Regimes | Markov-switching model with filtered probabilities for expansion, slowdown and stress |
-| Nowcasts | MIDAS for mixed-frequency targets such as GDP; Bayesian VAR as a challenger |
-| Company exposure | Sticker-weighted state: $f^{mac}_{i,t}=\sum_c e_{i,c}f_{c,t}$ |
-| Sensitivities | Estimate firm responses to macro factors; shrink noisy coefficients toward sticker/industry priors |
+| Nowcasts | Mixed-data sampling (MIDAS) regression for mixed-frequency targets such as GDP; Bayesian vector autoregression (BVAR) as a challenger |
+| Company exposure | Retain dated revenue-share and cost-share exposures separately; do not collapse them into one score. |
+| Sensitivities | Estimate firm responses to macro factors; shrink noisy coefficients toward geographic-exposure and industry priors |
 | Scheduled events | Standardised actual-minus-consensus surprise, with release-time volatility controls for intraday sleeves |
 | Transmission/stress | Local projections and the shared relationship graph to convert macro scenarios into firm shocks |
 | FX | Explicit revenue/cost currency exposure and portfolio-level USD translation exposure |
+
+For economy $c$, calculate revenue and cost exposure separately:
+
+$$
+f^{rev}_{i,t}=\sum_c e^{rev}_{i,c}f_{c,t}, \qquad f^{cost}_{i,t}=\sum_c e^{cost}_{i,c}f_{c,t}.
+$$
+
+The weights are dated revenue and cost shares. Preserve coverage flags; do not silently treat unknown exposures as zero.
 
 Shrink noisy firm sensitivities toward prior estimates:
 
@@ -448,26 +476,26 @@ $$
 \lambda_{ij}=\frac{\tau_j^2}{\tau_j^2+\mathrm{se}(\hat b_{ij})^2}.
 $$
 
-Standardised release surprise: $S_{c,t}=(\mathrm{actual}-\mathrm{consensus})/\mathrm{sd}(\mathrm{surprise})$. Estimate horizon-specific shock responses with local projections; include sector, sticker, input-cost and FX channels. Use filtered, point-in-time states only.
+Standardised release surprise: $S_{c,t}=(\mathrm{actual}-\mathrm{consensus})/\mathrm{sd}(\mathrm{surprise})$. Estimate horizon-specific shock responses with local projections; include industry, geographic exposure, input-cost and FX channels. Use filtered, point-in-time states only.
 
-## 8. Stage 2C: Micro Model (Market Labels)
+## 8. Stage 2C: Firm Fundamentals and Market Microstructure
 
-Interday micro models describe product-market economics. Intraday micro models describe price formation and execution.
+Interday models describe firm fundamentals, industry conditions and peer effects. Intraday models describe price formation, order flow and execution.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Point-in-time company, peer, market and trading data] --> B{Which sleeve is running?}
-    B -->|Interday| C[Build company-market panel: prices, demand, input costs, margins and competition]
-    C --> D[Fit panel and hierarchical models; use cross-fitted DML where justified]
-    D --> E[Estimate peer and earnings-surprise responses]
-    B -->|Intraday| F[Clean trades, quotes and order-book observations]
-    F --> G[Estimate trade intensity, durations, order-flow imbalance and price impact]
-    G --> H[Compute realised variance, jumps, kernels and semivariances]
-    E --> I[Combine economic response, market labels and forecast horizon]
-    H --> J[Produce liquidity, execution-cost and short-horizon market-state features]
+    A["Point-in-time company, peer,<br/>market and trading data"] --> B{Which sleeve is running?}
+    B -->|Interday| C["Build firm/market panel:<br/>demand, costs, margins, competition"]
+    C --> D["Fit panel/hierarchical models;<br/>use cross-fitted double/debiased machine learning (DML) where justified"]
+    D --> E["Estimate peer and<br/>earnings-surprise responses"]
+    B -->|Intraday| F[Clean trades, quotes and order-book data]
+    F --> G["Estimate trade intensity, duration,<br/>order-flow imbalance and price impact"]
+    G --> H["Calculate realised variance,<br/>jumps and semivariance"]
+    E --> I[Combine economic effects and forecast horizon]
+    H --> J[Estimate liquidity state and execution costs]
     J --> I
-    I --> K([Micro contribution and predictive quantiles for Stage 2])
-
+    I --> K([Firm-level/microstructure contribution and quantiles])
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef decision fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
@@ -480,7 +508,7 @@ flowchart TB
 
 | Branch | Main methods and features | Output |
 |---|---|---|
-| Interday | Firm/market panel and hierarchical models; demand, input costs, prices, margins, market share and competitive intensity; cross-fitted DML only where justified | Peer/earnings response and firm-level micro contribution |
+| Interday | Firm/market panel and hierarchical models; demand, input costs, prices, margins, market share and competitive intensity; cross-fitted double/debiased machine learning (DML) only where justified | Peer/earnings response and firm-level micro contribution |
 | Intraday | Trade/quote cleaning; trade intensity and durations; order-flow imbalance; spread, depth and price impact | Short-horizon features, liquidity state and execution-cost estimates |
 
 Two-way panel baseline:
@@ -489,29 +517,29 @@ $$
 r_{it}=\alpha_i+\lambda_t+\beta^\top x_{it}+\epsilon_{it},
 $$
 
-with firm- and date-clustered uncertainty. Hierarchical estimates shrink low-history firms toward market-label/peer-group estimates.
+with firm- and date-clustered uncertainty. Hierarchical estimates shrink low-history firms toward industry- and peer-group estimates.
 
 Realised measures from intraday data include realised variance, bipower variation, jumps, semivariance and realised kernels. Use them only when quote/trade timestamps and market sessions are reliable; otherwise fall back to validated daily estimates.
 
-## 9. Stage 2D: News Model (LLM Extraction)
+## 9. Stage 2D: News Event Extraction and Modelling
 
-Use an LLM to extract structured facts from timestamped text—not to issue orders or directly declare a profitable trade.
+Use a large language model (LLM) to extract structured facts from timestamped text. It does not issue orders or independently declare a trade profitable.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[News stories, transcripts and exchange announcements] --> B[Check source, publication time, processing latency, prompt and model version]
-    B --> C{Point-in-time and model-version rules valid?}
-    C -->|No| X[Block use in the affected historical test or run]
-    C -->|Yes| D[Link entities and de-duplicate stories into event records]
-    D --> E[LLM extracts fixed-schema fields from untrusted text]
-    E --> F{Schema and timestamp checks pass?}
+    A["News, transcripts and<br/>exchange announcements"] --> B["Check source, publication/processing time,<br/>prompt and model version"]
+    B --> C{Point-in-time rules valid?}
+    C -->|No| X[Block use in the affected test/run]
+    C -->|Yes| D["Link entities and deduplicate<br/>stories into event records"]
+    D --> E["LLM extracts fields using a fixed schema"]
+    E --> F{Schema and timestamps valid?}
     F -->|No| X
-    F -->|Yes| G[Measure novelty and compare with price move since publication]
-    G --> H[Propagate effects across the relationship graph with decay]
-    H --> I[Feed structured features to calibrated model trained on realised returns]
-    I --> J[Estimate shock probability and return quantiles]
-    J --> K([News contribution to common forecast adapter])
-
+    F -->|Yes| G["Measure novelty and price movement<br/>since publication"]
+    G --> H["Propagate effects through the<br/>relationship graph with decay"]
+    H --> I["Apply calibrated model trained<br/>on realised outcomes"]
+    I --> J["Estimate event-response probability<br/>and return quantiles"]
+    J --> K([News contribution to common forecast interface])
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
@@ -537,13 +565,13 @@ flowchart TB
 
 Propagate material effects through the shared relationship graph. For edge weight $W_{ij}$ and decay $\delta$, a first-order propagation is proportional to $W_{ij}\delta$; enforce stability of the propagation network (spectral radius below one) to avoid exploding effects.
 
-A calibrated logistic model estimates shock probability, for example:
+A calibrated logistic model estimates the probability of a material abnormal-return event, for example:
 
 $$
 P(|AR_{i,t}|>2\hat\sigma_i\mid z_d)=\Lambda(\theta^\top z_d),
 $$
 
-where features include novelty, direction, magnitude, source credibility, residual surprise and propagated effects. Validate with Brier scores and reliability curves.
+where $AR_{i,t}$ is abnormal return over the pre-defined event window relative to a specified benchmark, and $\hat\sigma_i$ is a point-in-time estimate of conditional return volatility. The threshold is a configurable research rule, not a regulatory standard. Features include novelty, direction, magnitude, source credibility, residual surprise and propagated effects. Validate with Brier scores and reliability curves.
 
 **Horizon policy:** intraday news usually widens volatility or reduces exposure unless latency tests show a directional edge; interday models may test slower diffusion/drift.
 
@@ -554,22 +582,22 @@ where features include novelty, direction, magnitude, source credibility, residu
 Validation occurs before a candidate model receives any combination weight.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Archived candidate forecasts and matched realised outcomes] --> B[Create chronological walk-forward folds]
+    A[Archived forecasts and matched realised outcomes] --> B[Create chronological walk-forward folds]
     B --> C[Purge overlapping labels and apply embargo]
-    C --> D[For each candidate, test benchmarks, calibration, stability, net-of-cost skill and overfitting]
-    D --> E{Candidate passes G3 eligibility?}
-    E -->|Yes| F[Add candidate to eligible model set]
-    E -->|No| X[Exclude candidate and record reason code]
-    F --> G[Finish eligibility assessment for all candidates]
+    C --> D["Assess baselines, calibration, stability,<br/>net-of-cost skill and multiple testing"]
+    D --> E{Pass G3 model-eligibility criteria?}
+    E -->|No| X[Exclude model and log reason]
+    E -->|Yes| F[Add model to eligible set]
+    F --> G[Complete assessment of all candidates]
     X --> G
-    G --> H{Eligible model set non-empty?}
-    H -->|No| N([NO-TRADE for affected name or sleeve])
-    H -->|Yes| I[Estimate inverse-loss, stacking or regime-conditional weights]
-    I --> J[Combine predictive quantiles; shrink weights when evidence is weak]
-    J --> K[Apply conformal calibration and choose horizon by net information ratio]
-    K --> L([Combined calibrated forecast distributions for risk and optimisation])
-
+    G --> H{Eligible set non-empty?}
+    H -->|No| N([NO-TRADE for affected name/sleeve])
+    H -->|Yes| I[Estimate stacking, inverse-loss or regime weights]
+    I --> J[Combine predictive quantiles; shrink uncertain weights]
+    J --> K[Calibrate on held-out data]
+    K --> L([Combined forecast distributions for risk/portfolio stages])
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
@@ -589,13 +617,13 @@ flowchart TB
 
 | Test / metric | Question |
 |---|---|
-| Pinball loss / CRPS and coverage | Is the predictive distribution accurate and calibrated? |
+| Pinball loss / continuous ranked probability score (CRPS) and coverage | Is the predictive distribution accurate and calibrated? |
 | Diebold–Mariano / Giacomini–White | Is forecast skill better, possibly conditional on regime? |
-| Hansen SPA / Model Confidence Set | Does a candidate beat the benchmark after model search? |
-| Deflated Sharpe / PBO | Could apparent trading performance be due to repeated trials/overfitting? |
-| Stability and residual checks | Do parameters, errors and signs remain credible across folds? |
+| Hansen Superior Predictive Ability (SPA) test / Model Confidence Set (MCS) | Do comparative forecast tests identify superior candidates or a statistically indistinguishable set of best models? |
+| Deflated Sharpe Ratio (DSR) / Probability of Backtest Overfitting (PBO) | Could apparent trading performance be due to repeated trials/overfitting? |
+| Stability and residual checks | Are parameter estimates, forecast errors and coefficient signs stable across folds? |
 
-### G3 eligibility defaults
+### G3 model-eligibility criteria (provisional)
 
 | Criterion | Provisional research rule |
 |---|---|
@@ -623,27 +651,34 @@ Apply conformal calibration on held-out data and choose the horizon with the bes
 The optimiser uses only risk estimates that passed their own checks. Liquidity and tail-risk limits are not relaxed merely to produce a feasible solution.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Combined eligible forecasts, current positions, holdings and cost estimates] --> B[Estimate covariance using shrinkage, factor, dynamic-correlation and regime models]
-    B --> C[Calculate volatility, expected shortfall and stress losses]
-    A --> D[Convert forecasts and uncertainty into expected-return views]
-    D --> E[Build cost-aware portfolio objective with distress penalties]
-    C --> F[Supply checked risk estimates and binding risk limits]
-    E --> G[Optimise each sleeve with position, turnover, sector, country, FX, liquidity and tail-risk constraints]
-    F --> G
-    G --> H{Solver successful and G4 limits satisfied?}
-    H -->|Yes| I[Accept target weights for the sleeve]
-    H -->|No| J[Relax only approved constraints and rerun optimiser: turnover, then sector, then tracking error]
-    J --> K{Feasible after permitted relaxation?}
-    K -->|No| L[Hold current weights and flag the sleeve; do not manufacture a solution]
+    A["Eligible forecasts, current holdings,<br/>positions and transaction-cost estimates"]
+    B["Estimate covariance using shrinkage,<br/>factor and dynamic models"]
+    C["Calculate volatility, Value at Risk,<br/>expected shortfall and stress losses"]
+    D["Convert forecasts and uncertainty<br/>into expected-return estimates"]
+    E[Build cost-aware portfolio objective]
+    F["Supply validated risk estimates<br/>and binding limits"]
+    G["Optimise each sleeve with position, turnover,<br/>sector, country, FX, liquidity and tail-risk constraints"]
+    H{Solver successful and G4 limits passed?}
+    I[Accept target weights]
+    J["Re-run only with pre-approved<br/>constraint relaxations"]
+    K{Feasible within permitted relaxations?}
+    L["Retain current positions and flag sleeve;<br/>do not force an infeasible solution"]
+    M["Allocate capital across sleeves within<br/>risk budgets and approved caps"]
+    N([Target weights and diagnostics for Stage 5])
+    A --> B --> C --> F --> G
+    A --> D --> E --> G
+    G --> H
+    H -->|Yes| I --> M --> N
+    H -->|No| J --> K
     K -->|Yes| I
-    I --> M[Allocate capital across sleeves by risk budget and evidence, within sleeve caps]
-    M --> N([Target weights and risk diagnostics for Stage 5])
-
+    K -->|No| L
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    classDef output fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     class A data;
     class B,C,D,E,F,G,J,M model;
     class H,K gate;
@@ -656,21 +691,21 @@ flowchart TB
 | Method | Role |
 |---|---|
 | Ledoit–Wolf shrinkage | Stabilise sample covariance |
-| Factor covariance | Explain market, sector, style, macro/sticker and FX exposures |
-| DCC-GARCH | Allow correlations to vary over time |
+| Factor covariance | Explain market, sector, style, macroeconomic, geographic exposure and FX risks |
+| Dynamic conditional correlation GARCH (DCC-GARCH) | Allow correlations to vary over time |
 | Regime mixture | Blend calm/stress covariance using filtered regime probabilities |
-| Filtered historical simulation / Monte Carlo / EVT | Independent tail-risk views; the most conservative credible estimate binds |
+| Filtered historical simulation / Monte Carlo / extreme-value theory (EVT) | Independent tail-risk views; use a risk estimate only if its backtest is acceptable |
 
 $$
 \mathrm{VaR}_\alpha=-\inf\{x:P(R_p\le x)>1-\alpha\},\qquad
 \mathrm{ES}_\alpha=-E[R_p\mid R_p\le-\mathrm{VaR}_\alpha].
 $$
 
-Backtest VaR coverage/independence and ES. Demote an engine that fails. Cross-market covariance must account for asynchronous ASX and US sessions via multi-day returns or lead–lag terms.
+Backtest value-at-risk (VaR) coverage and independence, and assess expected shortfall (ES) forecasts. Demote an engine that fails. Cross-market covariance must account for asynchronous ASX and US sessions via multi-day returns or lead–lag terms.
 
 ### Stress library
 
-Include global crisis/recession/rate-shock history, China activity shocks, AUD moves, US overnight gaps, liquidity drought (lower volume/wider spreads) and relationship-graph contagion. Apply shocks through company-specific stickers and sector exposures.
+Include global crisis/recession/rate-shock history, China activity shocks, AUD moves, US overnight gaps, liquidity drought (lower volume/wider spreads) and relationship-graph contagion. Apply shocks through company-specific geographic revenue/cost exposures and sector exposures.
 
 ### Portfolio optimisation
 
@@ -689,68 +724,88 @@ $$
 -\kappa\sum_i p_i^{dist}|w_i|.
 $$
 
-Constraints cover position/liquidity capacity, turnover, sector/country/sticker, factor/FX exposures, borrow and stress/CVaR. Check solver status and residuals. If infeasible, relax only approved constraints (e.g. turnover, then sector, then tracking error); never relax liquidity or tail-risk limits. If still infeasible, hold current positions and flag the sleeve.
+Constraints cover position and liquidity capacity, turnover, sector/country concentration, geographic revenue/cost exposures, factor and foreign-exchange (FX) exposures, borrow availability, and stress-loss/expected-shortfall limits. Check solver status and residuals. If infeasible, relax only approved constraints (e.g. turnover, then sector, then tracking error); never relax liquidity or tail-risk limits. If still infeasible, hold current positions and flag the sleeve.
 
-**Provisional examples only:** volatility no more than 1.1× target; single name ≤8%; sector ≤30%; exit within three days at 20% ADV. Configure and validate limits separately for each sleeve/instrument.
+**Provisional examples only:** volatility no more than 1.1× target; single name ≤8%; sector ≤30%; test whether an exit within three trading days is feasible at a participation cap of 20% of average daily volume (ADV). Configure and validate limits separately for each sleeve/instrument.
 
 ### Sleeve allocation
 
-Allocate capital across sleeves by risk budget and out-of-sample evidence, with bounds and a hard cap on intraday risk. Budget USD/FX exposure explicitly or hedge it. Do not allow intraday drawdown to silently consume interday capacity.
+Allocate capital across sleeves by risk budget and out-of-sample evidence, with bounds and a hard cap on intraday risk. Budget USD/FX exposure explicitly or hedge it. Do not allow intraday drawdown to consume the risk budget allocated to interday positions without an explicit policy rule.
 
 ## 12. Stage 5: Leverage and Position Report
 
 Optimisation determines relative weights; this stage determines permitted total exposure and whether each proposed trade should be submitted.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Target weights plus current positions and portfolio NAV] --> B[Estimate uncertainty-adjusted fractional Kelly cap]
-    B --> C[Calculate leverage limits from target volatility, policy maximum and margin headroom]
-    C --> D[Apply drawdown control and financing or borrow costs]
+    A["Target weights, current positions<br/>and portfolio net asset value"] --> B["Estimate uncertainty-adjusted<br/>fractional Kelly scale"]
+    B --> C["Apply target-volatility, policy<br/>and margin limits"]
+    C --> D["Apply drawdown, financing<br/>and borrow-cost controls"]
     D --> E{G5 leverage, margin and financing checks pass?}
     E -->|No| F[Reduce gross exposure and recheck]
     F --> G{Within limits after reduction?}
-    G -->|No| X[Block new risk; retain only risk-reducing actions allowed by policy]
-    G -->|Yes| H[Convert target weights into position changes]
+    G -->|No| X["Block new risk; allow only<br/>policy-approved risk reductions"]
+    G -->|Yes| H[Convert target weights to position changes]
     E -->|Yes| H
-    H --> I[Compare expected benefit with spread, commission and market-impact cost]
-    I --> J[Suppress changes inside the no-trade band]
-    J --> K{G6 data, model, risk, liquidity, market-state and kill-switch checks pass?}
-    K -->|No| Y[NO-TRADE or documented risk-reducing action]
-    K -->|Yes| L[Create approved order intents]
-    X --> M[Generate position and sleeve report with reason codes]
+    H --> I["Compare expected benefit with<br/>estimated execution costs"]
+    I --> J[Apply no-trade band]
+    J --> K{G6 data, model, risk and<br/>market checks pass?}
+    K -->|No| Y[NO-TRADE or permitted risk-reducing action]
+    K -->|Yes| L[Create approved order requests]
+    X --> M[Create position/sleeve report with reason codes]
     Y --> M
     L --> M
-    M --> N([Report and order intents for Stage 6])
-
+    M --> N([Report and order requests for Stage 6])
     classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
     classDef output fill:#edf7ed,stroke:#54845e,color:#1d4026;
-    class A input;
-    class B,C,D,H,I,J process;
+    class A,B,C,D,H,I,J process;
     class E,G,K gate;
     class F,X,Y stop;
     class L,M,N output;
 ```
 
-### Kelly cap and leverage rule
+### Fractional Kelly and leverage rule
 
-Full Kelly $f^*=\mu/\sigma^2$ is too sensitive to estimation error to use as a direct target. Apply fractional Kelly and account for uncertainty in expected return:
+The classical Kelly rule relates expected excess return to return variance. Here, **fractional Kelly is used only as a conservative portfolio-exposure scaling heuristic**; it is not a universal or regulatory formula. Here, $\hat\mu_{BL,t}^{\mathrm{excess}}$ is the estimated excess return in the proposed portfolio direction, and $\hat\sigma_{p,t}$ is the estimated volatility of those target weights before leverage scaling. Keep forecasts, variances and drawdown inputs on consistent horizons and in consistent units. The portfolio optimiser determines trade direction; this stage applies a non-negative exposure cap.
 
-$$
-f=c\frac{\mu_{BL}}{\sigma^2+\mathrm{Var}(\hat\mu)},\qquad c\in[0.25,0.5]\ \text{(research range)}.
-$$
-
-Overall leverage is the lowest permitted bound, then reduced by drawdown:
+First combine portfolio variance and uncertainty in the expected-return estimate:
 
 $$
-L_t=\min\left\{\frac{\sigma^*}{\hat\sigma_{p,t}},\ f_t,\ L_{max},\ L_t^{margin}\right\}
-\max\left\{0,1-\frac{DD_t}{DD_{max}}\right\}.
+u_t = \hat\sigma_{p,t}^{2} + \widehat{\operatorname{Var}}\!\left(\hat\mu_{BL,t}^{\mathrm{excess}}\right).
 $$
+
+Then calculate the Kelly exposure cap. The fractional coefficient range is provisional and must be validated:
+
+$$
+L_t^{\mathrm{Kelly}} = \max\!\left(0,\ c\frac{\hat\mu_{BL,t}^{\mathrm{excess}}}{u_t}\right), \qquad 0.25\le c\le0.5.
+$$
+
+Calculate the volatility-scaling cap:
+
+$$
+L_t^{\mathrm{vol}} = \frac{\sigma_{\mathrm{target}}}{\hat\sigma_{p,t}}.
+$$
+
+The leverage cap is the smallest permitted bound:
+
+$$
+L_t^{\mathrm{cap}} = \min\!\left(L_t^{\mathrm{vol}},\ L_t^{\mathrm{Kelly}},\ L_{\max},\ L_t^{\mathrm{margin}}\right).
+$$
+
+Apply the drawdown multiplier:
+
+$$
+d_t^{\mathrm{DD}} = \max\!\left(0,\ 1-\frac{DD_t}{DD_{\max}}\right), \qquad L_t = L_t^{\mathrm{cap}}d_t^{\mathrm{DD}}.
+$$
+
+**Plain-text reading:** estimate uncertainty-adjusted Kelly exposure; cap it by target volatility, maximum leverage and margin capacity; then reduce it according to drawdown. Drawdown is expressed as a positive fraction (for example, 0.10 for a 10% drawdown). If drawdown reaches the configured maximum, the multiplier is zero. Missing, stale, non-finite or invalid inputs must trigger a safe fallback—not an increase in permitted leverage. If estimated volatility or the maximum drawdown threshold is zero or invalid, block new risk pending a valid configuration.
 
 Overnight sizing must include gap risk; US positions held during Sydney night hours are a key case. Financing, borrow costs and stressed margin headroom are included in expected net returns and G5.
 
-### Decision and position report
+### Trade decision and position report
 
 Trade only if expected benefit over the chosen horizon exceeds spread, commission and market-impact cost by the configured margin. Suppress changes within the no-trade band. Each position records invalidation conditions (forecast reversal, tail-quantile breach, stress-regime change, adverse news or rising distress probability).
 
@@ -759,50 +814,52 @@ Every report—trade or `NO-TRADE`—contains:
 - Current/target weight, action and reason code.
 - Median and interval forecasts, model-layer contributions and model agreement.
 - Volatility, expected-shortfall contribution and main stress scenarios.
-- Distress probability, sticker/sector/factor/FX exposures and expected costs.
+- Distress probability, geographic, sector, factor and FX exposures and expected costs.
 - Gross/net exposure, leverage components, margin headroom, drawdown state and G5/G6 results.
 
 ## 13. Stages 6–7: Execution, Hard Limits, Monitoring and Learning
 
-Execution uses approved order intents only. Hard limits are independent of forecast, optimisation and monitoring models.
+Execution uses approved order requests only. Hard limits are independent of forecast, optimisation and monitoring models.
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Approved order intents from Stage 5] --> B[Refresh market state and verify order, security, venue and position limits]
-    B --> C{Independent hard limits and kill switch permit order?}
-    C -->|No| X[Reject or cancel order; halt new risk if required]
-    C -->|Yes| D[Choose execution schedule using urgency, liquidity and cost estimates]
-    D --> E[Interday: closing auction or VWAP; intraday: limit orders and participation caps]
-    E --> F[Submit through broker adapter and capture acknowledgements]
-    F --> G[Monitor fills, rejects, cancellations and partial execution]
-    G --> H[Reconcile fills, cash and positions against broker records]
-    H --> I{Reconciliation complete and consistent?}
-    I -->|No| Y[Block further orders and raise operational incident]
-    I -->|Yes| J[Calculate fees, slippage and implementation shortfall]
-    J --> K([Confirmed positions and execution records for monitoring])
-
+    A[Approved order requests from Stage 5] --> B["Refresh market data; validate<br/>security, venue and position"]
+    B --> C{Pre-trade controls and kill switch permit order?}
+    C -->|No| X[Reject/cancel order; halt new risk if required]
+    C -->|Yes| D["Choose schedule using urgency,<br/>liquidity and cost estimates"]
+    D --> E["Route order using approved<br/>broker/venue configuration"]
+    E --> F["Monitor fills, partial fills,<br/>rejects and timeouts"]
+    F --> G{Order completed or validly cancelled?}
+    G -->|No| H[Cancel/replace only under approved rules]
+    H --> F
+    G -->|Yes| I[Reconcile broker fills, cash and positions]
+    I --> J{Reconciliation passed?}
+    J -->|No| Y[Block further orders and raise operational incident]
+    J -->|Yes| K["Calculate fees, slippage and<br/>implementation shortfall"]
+    K --> L([Confirmed positions and execution records])
     classDef input fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef process fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
     class A input;
-    class B,D,E,F,G,H,J,K process;
-    class C,I gate;
+    class B,D,E,F,H,I,K,L process;
+    class C,G,J gate;
     class X,Y stop;
 ```
 
 ### Independent safety controls
 
 ```mermaid
-flowchart LR
-    A[Proposed or live order] --> B[Per-name, gross, leverage and participation limits]
-    B --> C[Daily loss and drawdown checks]
-    C --> D[Model-reality divergence and market-state checks]
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+flowchart TB
+    A[Proposed or live order] --> B["Check security, gross leverage<br/>and participation limits"]
+    B --> C[Check daily loss and drawdown thresholds]
+    C --> D["Check forecast-to-realised divergence<br/>and market state"]
     D --> E{Any hard limit breached?}
     E -->|No| F[Permit activity within approved limits]
-    E -->|Yes| G[Block new risk, cancel orders or flatten as policy requires]
-    G --> H[Log incident and require manual review before restart]
-
+    E -->|Yes| G["Block new risk; cancel/flatten<br/>as policy requires"]
+    G --> H["Log incident; require review<br/>before restart"]
     classDef check fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef safe fill:#edf7ed,stroke:#54845e,color:#1d4026;
@@ -823,31 +880,31 @@ flowchart LR
 | Drawdown | Reduce risk according to the approved drawdown policy |
 | Monitoring | Track P&L, forecast calibration, feature drift, risk backtests, execution error, slippage and data quality |
 
-Example alerts (calibrate per sleeve): 90% interval coverage outside 87–93% for 20 sessions; alpha half-life more than 50% shorter than at admission; VaR backtest p-value below 0.01; realised execution-cost error above 30%. Alerts trigger the configured response, not automatic model promotion.
+Illustrative alerts (calibrate per sleeve; these are not universal regulatory thresholds): 90% interval coverage outside 87–93% for 20 sessions; alpha half-life more than 50% shorter than at admission; VaR backtest p-value below 0.01; realised execution-cost error above 30%. Alerts trigger the configured response, not automatic model promotion.
 
 ### Monitoring and controlled learning
 
 ```mermaid
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 20, "rankSpacing": 24, "wrappingWidth": 160, "diagramPadding": 24, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A[Run records, forecasts, realised returns, fills, costs and positions] --> B[Calculate P&L attribution, calibration, feature drift, risk backtests and execution error]
-    B --> C[Generate per-security and per-sleeve plots from versioned run data]
-    B --> D[Create narrative report from structured results and verified metrics only]
-    B --> E{Monitoring threshold or material degradation triggered?}
-    E -->|No| F[Continue monitoring and retain current champion]
-    E -->|Yes| G[Apply approved safe response: recalibrate, reduce exposure or switch risk engine]
-    G --> H[Train and evaluate a challenger in walk-forward tests]
-    H --> I[Run challenger in shadow without order authority]
-    I --> J{G7 approved and calibration intact?}
-    J -->|Yes| K[Versioned promotion for future runs with rollback plan]
-    J -->|No or unclear| L[Retain champion; document failure and continue monitoring]
+    A["Run records, forecasts, realised returns,<br/>fills, costs and positions"] --> B["Calculate P&L attribution, calibration,<br/>feature drift, risk backtests and execution error"]
+    B --> C[Generate per-security and per-sleeve plots]
+    B --> D["Generate narrative from verified<br/>structured metrics"]
+    B --> E{Threshold breach or material degradation?}
+    E -->|No| F[Continue monitoring; retain current model]
+    E -->|Yes| G["Apply approved response:<br/>recalibrate or reduce risk"]
+    G --> H["Train and assess candidate model<br/>using walk-forward tests"]
+    H --> I["Run candidate model in shadow mode;<br/>no order authority"]
+    I --> J{G7 approval and calibration intact?}
+    J -->|Yes| K[Versioned promotion with rollback plan]
+    J -->|No / unclear| L[Retain current model; document failure]
     F --> M([Auditable run package])
-    D --> M
     C --> M
+    D --> M
     K --> M
     L --> M
-    M --> N[Review attribution and update research hypotheses]
-    N --> O[Universe membership unchanged unless deliberate re-formation is approved]
-
+    M --> N["Review attribution and update<br/>research hypotheses"]
+    N --> O["Change membership only through<br/>approved universe re-formation"]
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef process fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
@@ -858,34 +915,53 @@ flowchart TB
     class F,K,L,M safe;
 ```
 
-A model may move through `candidate → G3 eligible → shadow → challenger → G7 approved champion → retired`. Promotion requires independent review, a pre-agreed shadow period (e.g. at least 60 sessions), intact calibration, evidence against the champion and a rollback path. A challenger never replaces the champion automatically.
+A model may move through `candidate → G3 eligible → shadow mode → G7 approved production model → retired`. Promotion requires independent review, a pre-agreed shadow period (e.g. at least 60 sessions), intact calibration, evidence against the current approved model and a rollback path. A candidate model never replaces the current approved model automatically.
 
-Performance attribution should separate selection, forecasting, portfolio allocation, factor/sector/country effects and execution shortfall. Findings can inform later research but must not alter a frozen universe version silently.
+Performance attribution should separate selection, forecasting, portfolio allocation, factor/sector/country effects and execution shortfall. Findings can inform later research but must not alter a fixed universe version without an approved re-formation.
 
 ## 14. Core Design Decisions
 
 - Quantile distributions and metadata provide a common interface for all forecast layers.
 - Validation precedes eligibility and combination; trial counts and net-of-cost results are recorded.
-- Economy stickers are versioned revenue/cost exposures; one relationship graph supports macro transmission, news propagation and contagion stress.
-- The universe is static per version; safety exits are logged and do not trigger replacement.
+- Geographic revenue/cost exposures are versioned separately; one relationship graph supports macroeconomic transmission, news propagation and contagion stress.
+- Membership is fixed within each universe version; mandatory removals are logged and do not trigger automatic replacement.
 - Data depth follows model need and provider/storage cost.
 - Relative weights, total leverage, and order authorisation are separate decisions.
 - Hard limits and kill switches remain independent of model outputs.
 - AI-generated narrative reports explain structured results only; they do not invent metrics or issue orders.
 
-## 15. Notation, Glossary and Open Questions
+## 15. Notation, Glossary and Open Decisions
 
-| Symbol/term | Meaning |
+| Symbol / term | Meaning |
 |---|---|
-| $t$, $k$, $	au$ | Decision time, knowledge time and valid time |
+| $t$, $a$, $v$ | Decision time, first-available timestamp and valid time |
 | $h$, $r_{i,t}$ | Forecast horizon and security return |
-| $\mathbf e_i$, $f_{c,t}$ | Economy sticker vector and economy state factor |
-| $\hat q_	au$, CRPS | Forecast quantile and distribution scoring rule |
-| $p_i^{dist}$ | Estimated distress probability |
-| $w$, $\Sigma$, $L_t$ | Portfolio weights, covariance and leverage |
-| $DD_t$, $b_i$ | Drawdown and no-trade band |
-| Purging/embargo | Removing overlapping labels/adjacent observations during validation |
-| DSR/PBO/SPA/MCS | Multiple-testing and model-comparison diagnostics |
+| $e^{rev}_{i,c}$, $e^{cost}_{i,c}$ | Security $i$'s dated revenue and cost exposure shares for economy $c$ |
+| $f_{c,t}$ | Macroeconomic state/factor for economy $c$ at time $t$ |
+| $q_{i,t}(\tau)$ | Forecast quantile at probability level $\tau$ |
+| $\hat{\Sigma}$ | Estimated covariance matrix |
+| $p_i^{dist}$ | Estimated distress/default probability |
+| $w_i$, $L_t$, $DD_t$ | Portfolio weight, leverage and drawdown |
+| $b_i$ | No-trade band for security $i$ |
+| Purging / embargo | Removing overlapping labels and a defined buffer around test periods during validation |
+
+### Acronyms and established model names
+
+| Term | Meaning |
+|---|---|
+| VaR / ES | Value at Risk / Expected Shortfall; some literature uses Conditional Value at Risk (CVaR) for related tail-risk measures |
+| CRPS / PIT | Continuous Ranked Probability Score / Probability Integral Transform |
+| GARCH / GJR-GARCH / EGARCH | Generalised Autoregressive Conditional Heteroskedasticity / Glosten–Jagannathan–Runkle GARCH / Exponential GARCH |
+| HAR-RV | Heterogeneous Autoregressive model of Realised Volatility |
+| MIDAS / DCC-GARCH | Mixed Data Sampling model / Dynamic Conditional Correlation GARCH model |
+| DML | Double/debiased machine learning (academic terminology; both forms are used in the literature) |
+| EWMA | Exponentially weighted moving average |
+| DSR / PBO | Deflated Sharpe Ratio / Probability of Backtest Overfitting |
+| SPA / MCS | Superior Predictive Ability test / Model Confidence Set |
+| NAV / ADV / FX | Net asset value / average daily volume / foreign exchange |
+| OLS / EVT / BVAR | Ordinary Least Squares / Extreme Value Theory / Bayesian Vector Autoregression |
+| Champion / challenger | Current approved model / candidate model undergoing independent evaluation |
+| G1–G7 | Project-specific gate identifiers, not external regulatory rule numbers |
 
 ### Decisions required before implementation
 
@@ -904,11 +980,11 @@ Every run creates a unique `run_id` and records:
 | Record | Required fields |
 |---|---|
 | Run/config | Start/end timestamps, code revision, config version, market, sleeve, cutoff, calendar and horizons |
-| Data lineage | Provider/dataset, extraction and observation timestamps, knowledge-time rule, row counts and schema version |
+| Data lineage | Provider/dataset, extraction and observation timestamps, availability-time rule, row counts and schema version |
 | Universe | Universe version, eligible names, exits and reason codes |
 | Models/validation | Model/feature versions, training window, fit status, fold/purge/embargo settings, benchmark/calibration/net-cost results and trial count |
 | Portfolio/decision | Forecasts, current/target weights, costs, risk contributions, binding constraints, `TRADE`/`REDUCE`/`HOLD`/`NO-TRADE` and reason codes |
-| Execution | Order intents, submissions/fills, timestamps, fees, cancellations/rejections and implementation shortfall |
+| Execution | Order requests, submissions/fills, timestamps, fees, cancellations/rejections and implementation shortfall |
 | Outputs | Per-security and per-sleeve plots, diagnostics, warnings and narrative report |
 
 **Terminal status:**
@@ -916,22 +992,35 @@ Every run creates a unique `run_id` and records:
 - `DEGRADED`: a non-critical component failed and an approved fallback is used; trading remains subject to every hard gate.
 - `BLOCKED`: a critical check failed; do not initiate new risk.
 
-The narrative report must be generated from structured outputs. AI/ML may summarise measured results but may not invent numbers, override a gate or issue an order. Plot/report failures are logged and never conceal safety failures. Fallbacks must be tested and cannot bypass data integrity, margin, hard exposure limits, kill switches or reconciliation.
+The narrative report must be generated from structured outputs. An AI-generated summary may describe measured results but must not invent numbers, override a gate or issue an order. Plot/report failures are logged and never conceal safety failures. Fallbacks must be tested and cannot bypass data integrity, margin, hard exposure limits, kill switches or reconciliation.
 
 ## 17. Implementation Roadmap and Readiness Gates
 
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | 1. Data foundation | Point-in-time schemas, calendars, identifiers, corporate actions and lineage | As-of queries and schema/timestamp/unit tests pass |
-| 2. Baseline research | Benchmarks, costs and frozen-universe builder | Survivorship/look-ahead tests pass; clean runs reproduce results |
+| 2. Baseline research | Benchmarks, costs and fixed-universe builder | Survivorship/look-ahead tests pass; clean runs reproduce results |
 | 3. Validation | Walk-forward folds, purging/embargo and trial registry | Leakage tests work; trials and fold boundaries logged |
 | 4. Forecast layers | Financial, macro, micro and news modules under common contract | Baselines, calibration and model failure states are measured |
 | 5. Risk/optimisation | Covariance/ES, stress library, optimiser and sleeve allocator | Constraint tests pass; infeasibility cannot create tradable weights |
 | 6. Execution simulation | Scheduling, fill/cost model and shortfall attribution | Costs/fills are stress-tested and documented |
 | 7. Paper trading | Scheduled end-to-end runs without capital at risk | Reconciliation, stale-data, restart, latency and kill-switch tests pass |
 | 8. Controlled deployment | Small approved allocation with monitoring and broker permissions | Written sign-off, limits, rollback and incident response tested |
-| 9. Challenger lifecycle | Shadow tests and champion/challenger governance | Out-of-sample criteria met; versioned rollback available |
+| 9. Challenger lifecycle | Shadow tests and approved-model/candidate-model governance | Out-of-sample criteria met; versioned rollback available |
 
-A stage is complete only when its input/output schema, unit/failure tests, point-in-time handling, versioned configuration, logs/reason codes, reproducible outputs, benchmark/invariant and downstream failure action are documented.
+A stage is complete only when its input/output schema, unit and failure tests, point-in-time handling, versioned configuration, logs and reason codes, reproducible outputs, baseline/invariants and downstream failure actions are documented.
 
 **Final rule:** research models propose forecasts; the validated pipeline proposes target positions; only independent risk and execution controls authorise orders.
+
+## Terminology and rendering references
+
+**Terminology note:** recognised technical names below identify established methods; they are not all regulatory standards. The architecture's stages, gates and dataset name are intentionally project-defined. Risk-control legal obligations depend on market, instrument and entity; this design is not a compliance opinion.
+
+- [CFA Institute — Backtesting and Simulation](https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/backtesting-and-simulation): walk-forward backtesting, look-ahead bias, survivorship bias and limitations of historical simulation.
+- [CFA Institute — Active Equity Investing: Strategies](https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/active-equity-investing-strategies): portfolio and active-investment context.
+- [Basel Committee / Bank for International Settlements — Market risk terminology](https://www.bis.org/committees/bcbs/basel-framework/standard/mar/10/inforce/2023-01-01/published/2020-03-27): regulatory market-risk terminology, including Value at Risk, expected shortfall and liquidity horizon.
+- [U.S. Securities and Exchange Commission — Market Access Rule FAQ](https://www.sec.gov/rules-regulations/staff-guidance/trading-markets-frequently-asked-questions/divisionsmarketregfaq-0): U.S. broker-dealer terminology for market-access controls, order limits and pre-trade risk controls. Applicability depends on the entity, product and jurisdiction; this document is not a legal compliance determination.
+- [Bailey and López de Prado — The Deflated Sharpe Ratio](https://doi.org/10.3905/jpm.2014.40.5.094) and [The Probability of Backtest Overfitting](https://doi.org/10.2139/ssrn.2326253): original research references for DSR and PBO.
+- [Hansen, Lunde and Nason — The Model Confidence Set](https://doi.org/10.3982/ECTA5771): original research reference for MCS; Hansen’s [Superior Predictive Ability test](https://doi.org/10.1198/073500105000000063) is another established forecast-comparison method.
+- [Corsi — A Simple Approximate Long-Memory Model of Realized Volatility](https://doi.org/10.1093/jjfinec/nbp001): original HAR-RV reference.
+- [Mermaid — Flowchart configuration](https://mermaid.js.org/config/schema-docs/config-defs-flowchart-diagram-config.html) and [Mermaid configuration schema](https://mermaid.js.org/config/schema-docs/config.html): references for node spacing, rank spacing, wrapping width and diagram padding used in the flowcharts.
