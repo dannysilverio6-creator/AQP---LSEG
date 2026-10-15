@@ -7,7 +7,7 @@
 | Scope | Design |
 |---|---|
 | Markets | Any (ASX & US) |
-| Sleeves | ASX interday, US interday, ASX intraday, US intraday |
+| Sleeves | ANY (ASX interday, US interday, ASX intraday, US intraday) |
 | Forecast layers | Financial, macroeconomic, microeconomic and news-derived |
 | Main flow | Data → fixed research universe → forecasts → validation → risk/optimisation → leverage/pre-trade gates → execution → monitoring/reporting |
 | Out of scope | Full source code, provider API instructions and production runbooks |
