@@ -3,8 +3,6 @@
 **Version 9: concise architecture, stage workflows and control specification**
 
 > **Status:** Research and system-design specification, not evidence of profitability or production readiness. Model thresholds are provisional. Live use requires tested implementation, validated data and broker interfaces, approved risk limits, operational testing and explicit sign-off.
->
-> **Math rendering:** Formulas use LaTeX Markdown (`$...$` and `$$...$$`). Use a math-enabled Markdown preview if commands such as `\mathrm` display literally.
 
 | Scope | Design |
 |---|---|
