@@ -106,6 +106,8 @@ the risk budget allocated to interday positions without an explicit policy rule.
 
 ---
 
----
+## Navigate this documentation
 
-**Related documents:** [Stage 2 — Data, forecasting, AI News and paired validation](03_STAGE_2_DATA_EXPANSION_AND_COMMON_FORECAST_SCHEMA.md) · [Stage 5 — Leverage, sizing and position report](05_STAGE_5_LEVERAGE_SIZING_AND_POSITION_REPORT.md) · [Stages 6–7 — Execution, safety, monitoring and learning](06_STAGES_6_7_EXECUTION_SAFETY_MONITORING_AND_LEARNING.md)
+**← Previous:** [Stage 2 — Data Expansion, Forecasting, AI News and Paired Validation](03_STAGE_2_DATA_EXPANSION_AND_COMMON_FORECAST_SCHEMA.md)  
+**Next →:** [Stage 5 — Leverage, Sizing and Position Report](05_STAGE_5_LEVERAGE_SIZING_AND_POSITION_REPORT.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

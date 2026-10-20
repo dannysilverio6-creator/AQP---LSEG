@@ -78,6 +78,8 @@ store; those are completed for admitted names in Stage 2.
 
 ---
 
----
+## Navigate this documentation
 
-**Related documents:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Stage 1 — Universe selection and classification](02_STAGE_1_UNIVERSE_SELECTION_AND_CLASSIFICATION.md) · [Stage 2 — Data, forecasting, AI News and paired validation](03_STAGE_2_DATA_EXPANSION_AND_COMMON_FORECAST_SCHEMA.md)
+**← Previous:** [Overall Design](00_AQP_OVERALL_DESIGN.md)  
+**Next →:** [Stage 1 — Universe Selection and Classification](02_STAGE_1_UNIVERSE_SELECTION_AND_CLASSIFICATION.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

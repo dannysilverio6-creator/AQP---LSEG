@@ -551,3 +551,11 @@ assignment if the estimated half-life changes materially.
 Stage 2 is complete only when the detailed-data request is reproducible; source data pass point-in-time, schema, timestamp, unit, freshness and lineage checks; baseline and challenger forecasts share the same contract; all paired experiments and model trials are registered; missing-news coverage is reported; and invalid forecasts cannot bypass validation. If no model is eligible for a name/sleeve, emit `NO-TRADE` with a reason code rather than manufacturing a forecast.
 
 **Downstream hand-off:** eligible forecast distributions, model-selection evidence, feature/data lineage, coverage diagnostics and calibrated uncertainty pass to [Stages 3–4 — Portfolio Risk, Optimisation and Sleeve Allocation](04_STAGES_3_4_PORTFOLIO_RISK_OPTIMISATION_AND_SLEEVES.md).
+
+---
+
+## Navigate this documentation
+
+**← Previous:** [Stage 1 — Universe Selection and Classification](02_STAGE_1_UNIVERSE_SELECTION_AND_CLASSIFICATION.md)  
+**Next →:** [Stages 3–4 — Risk, Optimisation and Sleeve Allocation](04_STAGES_3_4_PORTFOLIO_RISK_OPTIMISATION_AND_SLEEVES.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

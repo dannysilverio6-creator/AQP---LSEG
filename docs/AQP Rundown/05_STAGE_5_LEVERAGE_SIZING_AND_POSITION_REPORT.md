@@ -111,6 +111,8 @@ Every report—trade or `NO-TRADE`—contains:
 
 ---
 
----
+## Navigate this documentation
 
-**Related documents:** [Stages 3–4 — Portfolio risk, optimisation and sleeve allocation](04_STAGES_3_4_PORTFOLIO_RISK_OPTIMISATION_AND_SLEEVES.md) · [Stages 6–7 — Execution, safety, monitoring and learning](06_STAGES_6_7_EXECUTION_SAFETY_MONITORING_AND_LEARNING.md)
+**← Previous:** [Stages 3–4 — Risk, Optimisation and Sleeve Allocation](04_STAGES_3_4_PORTFOLIO_RISK_OPTIMISATION_AND_SLEEVES.md)  
+**Next →:** [Stages 6–7 — Execution, Safety, Monitoring and Learning](06_STAGES_6_7_EXECUTION_SAFETY_MONITORING_AND_LEARNING.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

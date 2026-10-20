@@ -121,6 +121,8 @@ Stage 2 data request and does not silently replace or re-rank members of the fro
 
 ---
 
----
+## Navigate this documentation
 
-**Related documents:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Stage 0 — Screening data and point-in-time foundation](01_STAGE_0_SCREENING_DATA_AND_POINT_IN_TIME_FOUNDATION.md) · [Stage 2 — Data, forecasting, AI News and paired validation](03_STAGE_2_DATA_EXPANSION_AND_COMMON_FORECAST_SCHEMA.md)
+**← Previous:** [Stage 0 — Screening Data and Point-in-Time Foundation](01_STAGE_0_SCREENING_DATA_AND_POINT_IN_TIME_FOUNDATION.md)  
+**Next →:** [Stage 2 — Data Expansion, Forecasting, AI News and Paired Validation](03_STAGE_2_DATA_EXPANSION_AND_COMMON_FORECAST_SCHEMA.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

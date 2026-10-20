@@ -30,6 +30,8 @@ margin, hard exposure limits, kill switches or reconciliation.
 
 ---
 
----
+## Navigate this documentation
 
-**Related documents:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Notation, glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md) · [Implementation roadmap and readiness gates](09_IMPLEMENTATION_ROADMAP_AND_READINESS_GATES.md)
+**← Previous:** [Notation, Glossary and Open Decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)  
+**Next →:** [Implementation Roadmap and Readiness Gates](09_IMPLEMENTATION_ROADMAP_AND_READINESS_GATES.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

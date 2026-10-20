@@ -102,6 +102,8 @@ alter a fixed universe version without an approved re-formation.
 
 ---
 
----
+## Navigate this documentation
 
-**Related documents:** [Stages 3–4 — Portfolio risk, optimisation and sleeve allocation](04_STAGES_3_4_PORTFOLIO_RISK_OPTIMISATION_AND_SLEEVES.md) · [Stage 5 — Leverage, sizing and position report](05_STAGE_5_LEVERAGE_SIZING_AND_POSITION_REPORT.md) · [Operating contract and run outputs](08_OPERATING_CONTRACT_AND_RUN_OUTPUTS.md) · [Implementation roadmap and readiness gates](09_IMPLEMENTATION_ROADMAP_AND_READINESS_GATES.md)
+**← Previous:** [Stage 5 — Leverage, Sizing and Position Report](05_STAGE_5_LEVERAGE_SIZING_AND_POSITION_REPORT.md)  
+**Next →:** [Notation, Glossary and Open Decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

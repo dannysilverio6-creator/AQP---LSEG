@@ -56,6 +56,8 @@
 
 ---
 
----
+## Navigate this documentation
 
-**Related documents:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Operating contract and run outputs](08_OPERATING_CONTRACT_AND_RUN_OUTPUTS.md) · [Implementation roadmap and readiness gates](09_IMPLEMENTATION_ROADMAP_AND_READINESS_GATES.md) · [Selected technical references](10_SELECTED_TECHNICAL_REFERENCES.md)
+**← Previous:** [Stages 6–7 — Execution, Safety, Monitoring and Learning](06_STAGES_6_7_EXECUTION_SAFETY_MONITORING_AND_LEARNING.md)  
+**Next →:** [Operating Contract and Run Outputs](08_OPERATING_CONTRACT_AND_RUN_OUTPUTS.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

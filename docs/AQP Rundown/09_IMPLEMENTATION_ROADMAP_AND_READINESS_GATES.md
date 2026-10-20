@@ -29,4 +29,8 @@ shows promise in one fold or one metric.
 
 ---
 
-**Related documents:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Operating contract and run outputs](08_OPERATING_CONTRACT_AND_RUN_OUTPUTS.md) · [Selected technical references](10_SELECTED_TECHNICAL_REFERENCES.md)
+## Navigate this documentation
+
+**← Previous:** [Operating Contract and Run Outputs](08_OPERATING_CONTRACT_AND_RUN_OUTPUTS.md)  
+**Next →:** [Selected Technical References](10_SELECTED_TECHNICAL_REFERENCES.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

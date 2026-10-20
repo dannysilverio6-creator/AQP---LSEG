@@ -271,3 +271,11 @@ not exchange or regulatory classifications. Every failure receives a machine-rea
 approved fallback exists, stop the affected run/sleeve.
 
 ---
+
+---
+
+## Navigate this documentation
+
+**Start here:** This is the system-level overview.  
+**Next →:** [Stage 0 — Screening Data and Point-in-Time Foundation](01_STAGE_0_SCREENING_DATA_AND_POINT_IN_TIME_FOUNDATION.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)

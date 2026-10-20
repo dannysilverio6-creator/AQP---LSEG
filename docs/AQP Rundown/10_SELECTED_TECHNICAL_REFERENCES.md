@@ -39,4 +39,8 @@ design as profitable or compliant. Legal obligations depend on the instrument, e
 
 ---
 
-**Related documents:** [Notation, glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md) · [Implementation roadmap and readiness gates](09_IMPLEMENTATION_ROADMAP_AND_READINESS_GATES.md)
+## Navigate this documentation
+
+**← Previous:** [Implementation Roadmap and Readiness Gates](09_IMPLEMENTATION_ROADMAP_AND_READINESS_GATES.md)  
+**Next →:** [Back to Overall Design](00_AQP_OVERALL_DESIGN.md)  
+**Quick links:** [Overall design](00_AQP_OVERALL_DESIGN.md) · [Document index](README.md) · [Glossary and open decisions](07_NOTATION_GLOSSARY_AND_OPEN_DECISIONS.md)
