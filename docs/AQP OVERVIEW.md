@@ -1,6 +1,6 @@
 # AQP — Multi-Market Quantitative Investment Pipeline
 
-**Architecture Version 13 · editorial revision: reduced repetition and clearer executive summary**
+**Architecture Version 14 · workflow realignment around filter-first data collection and paired news benchmarks**
 
 > **Status:** Research and system-design specification, not evidence of profitability or production
 > readiness. Model thresholds are provisional. Live use requires tested implementation, validated data and
@@ -19,32 +19,44 @@
 
 ## Executive Summary
 
-AQP is a **gated research-to-execution pipeline**, not one stand-alone prediction algorithm. It joins
-point-in-time data, company selection, forecasting, validation, portfolio construction, risk controls,
-execution and monitoring. Its four sleeves (ASX/US × interday/intraday) share infrastructure but retain
-separate calendars, cost assumptions, data depth and risk budgets.
+AQP is a **gated, multi-market research-to-execution pipeline**. Its job is to turn a broad company
+candidate list and market information into validated forecasts, risk-constrained portfolio decisions,
+and auditable run reports. It is a framework for research and controlled operation—not a single
+prediction algorithm and not evidence that a strategy is profitable.
 
-The defining change in this architecture is the **shared AI-NLP news feature engine**. It converts
-point-in-time news, filings, transcripts and announcements into a versioned quantitative vector
-$Z^{news}_t$. That vector can be added to the financial, macroeconomic and firm/microstructure model
-families as an external predictive input. It is not a fourth return-model family, an order generator or
-proof of a causal relationship.
+The operating order is deliberate:
 
-Every news-augmented candidate is tested against a matched no-news baseline. The universe, targets,
-horizons, folds, model family, tuning budget and cost assumptions are held constant; the registered
-experiment changes only whether the news features are included. A challenger must show robust
-out-of-sample improvement, acceptable calibration and net-of-cost value before shadow testing and
-independent promotion review. If evidence is weak or inconclusive, the eligible baseline or current
-approved model remains in place.
+1. **Build the screening dataset.** Load the candidate company/security list and only the point-in-time
+   data needed to assess identity, listing status, basic financial condition, liquidity, historical-data
+   availability and strategy suitability. Apply the same timing and data-quality rules used later in the
+   pipeline.
+2. **Filter and freeze the research universe.** Use the screening data to reject ineligible or unsuitable
+   names, record reasons, and create a versioned universe. Do not run the full research-data or AI-NLP
+   news pipeline across every initial candidate.
+3. **Collect detailed analysis data for admitted names.** Expand financial/interday data, the required
+   intraday data tier, firm and market-microstructure inputs, relevant macroeconomic series and the raw
+   qualitative news corpus. Keep timestamps, data vintages, coverage and source lineage. The detailed
+   data request is driven by the fixed universe, sleeve and coverage tier.
+4. **Build two matched forecasting arms.** Financial, macroeconomic and firm/microstructure model
+   families each have a no-news baseline that uses the common core features and a challenger that adds
+   a versioned quantitative news vector, $Z^{news}_{i,t,h}$. That vector is produced by converting
+   timestamped text into validated numerical variables; it is an input to the three model families, not a
+   fourth stand-alone return-model family.
+5. **Test the added value of news before choosing a model.** Compare baseline and challenger on matched
+   out-of-sample observations with the same universe, target, horizon, folds, model family, tuning budget
+   and transaction-cost assumptions. A news challenger is preferred only when its incremental value is
+   robust, calibrated and economically useful after costs. If it is not, retain the eligible baseline or
+   current approved model.
+6. **Pass eligible forecasts through the same risk and operating controls.** Forecasts feed portfolio
+   construction, leverage and margin checks, pre-trade eligibility, controlled execution and monitoring.
+   Model outputs never override a hard limit, data-integrity gate, reconciliation rule or kill switch.
 
-**The operating path:** point-in-time data → fixed research universe → financial, macro and firm/micro
-forecasts → paired validation and model eligibility → risk-aware portfolio construction → separate
-leverage and trade gates → controlled execution → monitoring and reproducible reporting.
-
-The pipeline defaults to no-trade when required checks fail. Forecasts cannot override data-integrity
-gates, portfolio limits, leverage/margin checks, order limits, reconciliation or a kill switch. A detailed
-design is not evidence of profitability: every component still requires implementation, chronological
-out-of-sample testing, realistic costs, shadow/paper operation and explicit approval before any live use.
+This structure limits unnecessary data acquisition, keeps the benchmark interpretable, and separates
+feature engineering from model evaluation. “News as an exogenous variable” means that NLP-derived news
+features are external inputs relative to the no-news feature set; it does **not** prove causal exogeneity.
+Every stage remains subject to point-in-time controls, tests, documented fallbacks and approval before
+live use. If a required gate fails and no pre-approved safe fallback applies, the affected branch or run
+is blocked and the decision is recorded with a reason code.
 
 ### Terminology convention
 
@@ -56,11 +68,10 @@ or regulatory standards.
 
 1. [Pipeline at a Glance](#1-pipeline-at-a-glance)
 2. [Design Principles and Gates](#2-design-principles-and-gates)
-3. [Stage 0: Point-in-Time Data and Company Reference
-   Data](#3-stage-0-point-in-time-data-and-company-reference-data)
+3. [Stage 0: Screening Data and Point-in-Time Foundation](#3-stage-0-screening-data-and-point-in-time-foundation)
 4. [Stage 1: Universe Selection and Strategy
    Classification](#4-stage-1-universe-selection-and-strategy-classification)
-5. [Stage 2: Common Forecast Schema](#5-stage-2-common-forecast-schema)
+5. [Stage 2: Post-filter Data Expansion and Common Forecast Schema](#5-stage-2-post-filter-data-expansion-and-common-forecast-schema)
 6. [Stage 2A: Financial Forecast and Distress Model](#6-stage-2a-financial-forecast-and-distress-model)
 7. [Stage 2B: Macroeconomic Exposure and Regime Model](#7-stage-2b-macroeconomic-exposure-and-regime-model)
 8. [Stage 2C: Firm Fundamentals and Market
@@ -86,102 +97,114 @@ Use this as the system map. The diagrams in Sections 3–13 show the process and
 
 ### 1A. Core operating pipeline
 
-This compact map shows the governed path from data to reporting. The detailed news-feature and benchmark
-paths follow it, so the main pipeline remains readable at normal screen width.
+The first data pull is for screening. Detailed research data and full news processing begin only after
+G1 has created the fixed, versioned universe.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    START([Run config + decision cutoff]) --> DATA["Stage 00 · Point-in-time data<br/>Prices · fundamentals · macro · market state"]
-    DATA --> G2{G2 · Data integrity?}
-    G2 -->|Fail| BLOCK["Quarantine affected data<br/>or block the affected run"]
-    G2 -->|Pass| UNI["Stage 01 · Fixed, versioned research universe"]
-    UNI --> G1{G1 · Universe eligibility?}
-    G1 -->|Fail| REJECT["Reject or record mandatory safety exit"]
-    G1 -->|Pass| MODELS
+    START([Run config + decision cutoff]) --> SCREEN["Stage 0 · Screening dataset<br/>Company/security list · basic corporate data<br/>Interday/intraday screening history · coverage"]
+    SCREEN --> G2{G2 · Screening data valid?}
+    G2 -->|Fail| BLOCK["Quarantine affected data or<br/>block the affected run"]
+    G2 -->|Pass| FILTER["Stage 1 · Filter candidate companies<br/>Status · distress · liquidity · history · strategy fit"]
+    FILTER --> G1{G1 · Universe gate passed?}
+    G1 -->|Fail| REJECT["Record rejection reason;<br/>retain history for audit"]
+    G1 -->|Pass| EXPAND["Stage 2 · Collect detailed data<br/>for the admitted universe only"]
 
-    subgraph MODELS["STAGE 02 · THREE MODEL FAMILIES, EACH WITH A MATCHED BASELINE / CHALLENGER"]
+    EXPAND --> CORE["Validated core feature store X_core<br/>Financial · macro · firm/microstructure<br/>Dated company exposures and source lineage"]
+    EXPAND --> TEXT["Raw qualitative corpus<br/>News · transcripts · filings · announcements"]
+    TEXT --> NEWS["Stage 2D · AI-NLP feature engine<br/>Text → validated quantitative Z_news"]
+
+    subgraph MODELS["STAGE 2 · MATCHED FORECAST ARMS"]
         direction TB
-        FIN["Financial models<br/>No-news baseline ↔ news challenger"]
-        MAC["Macroeconomic models<br/>No-news baseline ↔ news challenger"]
-        MICRO["Firm / microstructure models<br/>No-news baseline ↔ news challenger"]
+        FIN["Financial family<br/>Baseline: X_core · Challenger: X_core + Z_news"]
+        MAC["Macroeconomic family<br/>Baseline: X_core · Challenger: X_core + Z_news"]
+        MICRO["Firm / microstructure family<br/>Baseline: X_core · Challenger: X_core + Z_news"]
     end
+    CORE --> FIN
+    CORE --> MAC
+    CORE --> MICRO
+    NEWS -. "Challenger inputs only" .-> FIN
+    NEWS -. "Challenger inputs only" .-> MAC
+    NEWS -. "Challenger inputs only" .-> MICRO
 
-    NEWS["Stage 02D · AI-NLP engine<br/>Qualitative text → quantitative Z(news)"]
-    DATA --> NEWS
-    NEWS -. "Z(news) enters challenger only" .-> FIN
-    NEWS -. "Z(news) enters challenger only" .-> MAC
-    NEWS -. "Z(news) enters challenger only" .-> MICRO
-
-    MODELS --> SCHEMA["Common forecast schema<br/>Target · horizon · quantiles · uncertainty · lineage"]
-    SCHEMA --> G3{"Stage 02E · G3 eligibility<br/>Absolute skill + paired news test?"}
-    G3 -->|Fail| NOTRADE["No eligible forecast: NO-TRADE<br/>Record reason code"]
-    G3 -->|Pass| PORT["Stages 03–04 · Portfolio risk and optimisation<br/>Covariance · tail risk · stress · costs"]
+    FIN --> CONTRACT["Common forecast contract<br/>Target · horizon · quantiles · uncertainty · lineage"]
+    MAC --> CONTRACT
+    MICRO --> CONTRACT
+    CONTRACT --> G3["Stage 2E · G3<br/>Absolute eligibility; challenger test where relevant"]
+    G3 -->|No eligible forecast| NOTRADE["NO-TRADE for affected name/sleeve<br/>Record reason code"]
+    G3 -->|Eligible forecast(s)| PORT["Stages 3–4 · Portfolio risk and optimisation<br/>Covariance · tail risk · stress · transaction costs"]
     PORT --> G4{G4 · Portfolio constraints pass?}
     G4 -->|No| NOTRADE
-    G4 -->|Yes| SIZE["Stage 05 · Sizing and leverage<br/>G5 margin checks · G6 trade checks"]
-    SIZE --> EXEC["Stage 06 · Execution<br/>Independent order limits and reconciliation"]
-    EXEC --> MON["Stage 07 · Monitoring and reporting<br/>Forecast/news drift · costs · plots · run manifest"]
+    G4 -->|Yes| SIZE["Stage 5 · Sizing and leverage<br/>G5 margin checks · G6 trade checks"]
+    SIZE --> EXEC["Stage 6 · Approved execution<br/>Independent order limits · reconciliation"]
+    EXEC --> MON["Stage 7 · Monitoring and reporting<br/>Forecast/news drift · costs · plots · run manifest"]
 
     classDef input fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026,stroke-width:1px;
     classDef news fill:#eee9fb,stroke:#7762a8,color:#30244f,stroke-width:1px;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410,stroke-width:1px;
-    class START,DATA,UNI,SCHEMA,PORT,SIZE,EXEC,MON input;
+    class START,SCREEN,FILTER,EXPAND,CORE,TEXT,CONTRACT,PORT,SIZE,EXEC,MON input;
     class FIN,MAC,MICRO model;
     class NEWS news;
     class G1,G2,G3,G4 gate;
     class BLOCK,REJECT,NOTRADE stop;
 ```
 
-### 1B. AI News feature engine: qualitative text to quantitative inputs
-
-The news engine produces a versioned feature vector. It does **not** issue orders or automatically
-become a fourth return-forecast family.
+### 1B. Post-filter data collection and feature assembly
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 26, "wrappingWidth": 175, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    RAW["Timestamped sources<br/>News · filings · transcripts · announcements"] --> TIME["Check publication / first-seen time<br/>Source metadata · frozen model/prompt versions"]
-    TIME --> GATE{Point-in-time and provenance checks pass?}
-    GATE -->|No| FAIL["Quarantine / mark unavailable<br/>Log a reason code"]
-    GATE -->|Yes| LINK["Deduplicate stories and link entities<br/>Firm · security · sector · country · macro topic"]
-    LINK --> EXTRACT["NLP / LLM structured extraction<br/>Fixed schema · evidence spans"]
-    EXTRACT --> QUANT["Quantify event content<br/>Direction · novelty · severity · source credibility<br/>Confidence · event / shock probabilities"]
-    QUANT --> DYNAMIC["Add time and exposure structure<br/>Latency · persistence / decay · event windows<br/>Dated firm, sector and macro exposure weights"]
-    DYNAMIC --> QC{Feature schema, timestamps and quality pass?}
-    QC -->|No| FAIL
-    QC -->|Yes| Z["Versioned Z(news)<br/>Availability time · coverage / missingness<br/>Entity graph · feature schema · model / prompt lineage"]
-    Z --> USE["Join to financial, macro and micro models<br/>as an input to matched news challengers only"]
+    U["G1-passed, versioned universe<br/>Plus sleeve, decision cutoff and coverage tier"] --> MANIFEST["Create data-request manifest<br/>Required sources, frequency, horizon and freshness"]
+    MANIFEST --> FIN["Financial / corporate<br/>Prices, returns, fundamentals, estimates, actions"]
+    MANIFEST --> MACRO["Macro / external<br/>Release vintages, consensus, rates, FX, commodities"]
+    MANIFEST --> MICRO["Firm / market data<br/>Peers, trades, quotes, order book, borrow and costs"]
+    MANIFEST --> REF["Company reference / exposures<br/>Dated sector, geography, revenue/cost, peers and links"]
+    MANIFEST --> TEXT["Qualitative corpus<br/>Licensed news, filings, transcripts, announcements"]
 
-    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
-    classDef model fill:#eee9fb,stroke:#7762a8,color:#30244f,stroke-width:1px;
+    FIN --> QC["As-of joins and G2 checks<br/>Keys, timestamps, units, freshness and source lineage"]
+    MACRO --> QC
+    MICRO --> QC
+    REF --> QC
+    QC -->|Valid core inputs| CORE["Build X_core feature store<br/>No NLP-derived news variables"]
+    QC -->|Critical failure| STOP["Block affected branch/run<br/>or use only a pre-approved fallback"]
+    TEXT --> NLP["Stage 2D · NLP/LLM extraction<br/>Entity resolution · deduplication · evidence checks"]
+    NLP --> Z["Publish Z_news vector<br/>Version · availability time · confidence · coverage"]
+    CORE --> BASE["Baseline forecasts use X_core"]
+    CORE --> CHAL["Challengers use X_core + Z_news"]
+    Z -. "Added to challenger only" .-> CHAL
+    classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef news fill:#eee9fb,stroke:#7762a8,color:#30244f;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
-    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410,stroke-width:1px;
-    class RAW,TIME,LINK data;
-    class EXTRACT,QUANT,DYNAMIC,Z,USE model;
-    class GATE,QC gate;
-    class FAIL stop;
+    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
+    class U,MANIFEST,FIN,MACRO,MICRO,REF,TEXT data;
+    class CORE,BASE,CHAL model;
+    class NLP,Z news;
+    class QC gate;
+    class STOP stop;
 ```
 
 ### 1C. Matched benchmark and promotion path
 
-The full statistical protocol is in Stage 2E. This overview shows the decision sequence only.
+The detailed statistical protocol is in Stage 2E. This diagram shows the decision sequence for each
+model family, target, horizon and sleeve.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 26, "wrappingWidth": 170, "diagramPadding": 16, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    INPUT["Same point-in-time sample, universe,<br/>target and forecast horizon"] --> BASE["Baseline<br/>Original features only"]
-    INPUT --> CHAL["Challenger<br/>Original features + Z(news)"]
-    BASE --> PAIR["Paired out-of-sample comparison<br/>Accuracy · calibration · uncertainty · net costs"]
+    INPUT["Same universe, core data, target, horizon<br/>and chronological test observations"] --> BASE["Baseline<br/>Original core features; no Z_news"]
+    INPUT --> CHAL["Challenger<br/>Same core features + versioned Z_news"]
+    BASE --> PAIR["Paired out-of-sample comparison<br/>Forecast loss · calibration · uncertainty · net costs"]
     CHAL --> PAIR
-    PAIR --> VALUE{Robust incremental value<br/>and model eligibility?}
-    VALUE -->|No / inconclusive| KEEP["Keep eligible baseline or<br/>current approved model"]
-    VALUE -->|Yes| SHADOW["Shadow test and independent review"]
-    SHADOW --> G7{G7 · Promotion approved?}
+    PAIR --> VALUE{Does challenger pass absolute eligibility<br/>and robust incremental-value tests?}
+    VALUE -->|No / inconclusive| KEEP["Retain eligible baseline or<br/>current approved model"]
+    VALUE -->|Yes| SHADOW["Shadow evaluation<br/>Latency · coverage · calibration · operational stability"]
+    SHADOW --> G7{G7 · Independent promotion<br/>criteria passed?}
     G7 -->|No| KEEP
-    G7 -->|Yes| PROMOTE["Versioned promotion<br/>Monitoring and rollback plan"]
+    G7 -->|Yes| PROMOTE["Versioned approved challenger<br/>Monitoring and rollback plan"]
 
     classDef baseline fill:#f3f4f6,stroke:#6b7280,color:#202938;
     classDef challenger fill:#edf7ed,stroke:#54845e,color:#1d4026;
@@ -195,11 +218,13 @@ flowchart TB
 
 ### How to read the diagrams
 
-Solid arrows show normal data/control flow; dotted arrows show news-feature inputs, not causal claims.
-G1–G7 are project-defined gates. Failures require a reason code and an approved safe action. A
-news-augmented challenger is never promoted based on fit or one favourable metric alone.
+Solid arrows show normal data/control flow. Dotted arrows show that $Z^{news}$ is added to challenger
+models only; they do not assert a causal effect. G1–G7 are project-defined gates. The initial screening
+pull is deliberately smaller than the post-filter research-data pull. A rejected company does not proceed
+to full feature construction, except for records required for audit or historical research integrity.
 
-Model promotion is covered with the paired benchmark in Stage 2E and the operational learning loop in Stage 7.
+A challenger is never promoted on fit or one favourable metric alone. Stage 2E defines paired evaluation;
+Stage 7 defines ongoing monitoring, rollback and controlled model changes.
 
 ### Sleeves
 
@@ -227,6 +252,8 @@ cost assumptions, data depth and risk budgets.
 | Principle | Implementation |
 |---|---|
 | Point-in-time | Input availability timestamp must be no later than decision time. Filtered states only; smoothing is for retrospective analysis. |
+| Filter before deep retrieval | Stage 0 collects screen-level data; Stage 2 retrieves detailed research data only for G1-admitted names and relevant macro/relationship scope. |
+| Isolate the news experiment | The registered baseline/challenger pair differs only by NLP-derived $Z^{news}$ inputs. Keep downstream rules and costs identical; test any separate news overlay as its own experiment. |
 | Common forecast format | Each forecast-producing model produces a predictive distribution and lineage metadata; the news engine publishes covariates, not an assumed fourth return forecast. |
 | Validate before weighting | Fit success is not proof of out-of-sample skill or economic value. |
 | Conservative, validated risk estimates | Use the most conservative risk estimate that passes its own backtests. |
@@ -239,7 +266,7 @@ cost assumptions, data depth and risk budgets.
 |---|---|---|
 | **G1 Universe gate (project-defined)** | Formation filters pass; existing members meet safety rules | Reject at formation or log a safety exit |
 | **G2 Data-integrity gate (project-defined)** | No look-ahead, schema, unit, timezone or freshness breach | Quarantine affected name or block affected branch/run |
-| **G3 Model-eligibility gate (project-defined)** | Stable, calibrated, out-of-sample skill and positive net-of-cost evidence | Exclude model; no eligible signal means no trade |
+| **G3 Model-eligibility gate (project-defined)** | Each candidate has stable, calibrated, out-of-sample skill and net-of-cost evidence; a news challenger must also pass the registered paired incremental-value test | Exclude the failing candidate; retain an eligible baseline if its challenger fails; no eligible candidate means no-trade |
 | **G4 Portfolio-risk gate (project-defined)** | Volatility, expected shortfall, concentration, liquidity and stress limits pass | Re-optimise within approved relaxations or scale toward cash |
 | **G5 Leverage/margin gate (project-defined)** | Exposure, financing and stressed margin stay within approved limits | Reduce gross exposure or block new risk |
 | **G6 Final trade-eligibility gate (project-defined)** | Data, model, risk, liquidity, market-state and kill-switch checks pass | Block the order; risk-reducing actions only if policy permits |
@@ -252,84 +279,84 @@ approved fallback exists, stop the affected run/sleeve.
 
 ---
 
-## 3. Stage 0: Point-in-Time Data and Company Reference Data
+## 3. Stage 0: Screening Data and Point-in-Time Foundation
 
-**Purpose:** Build one reproducible, timestamped view of every company and relevant market input before
-calculating features or forecasts.
+**Purpose:** Prepare the candidate company/security list and the minimum reliable dataset needed to make
+the universe decision. Stage 0 is not the full research-data download. Detailed financial, macro, firm-level
+and news data are expanded only after Stage 1 has frozen the admitted universe.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    A([Run configuration and decision cut-off])
-    B["Load market, fundamentals, macro,<br/>news, membership, borrow and margin data"]
-    C["Standardise identifiers, calendars,<br/>currencies, units and time zones"]
-    D["Record valid time and availability time;<br/>retain historical data vintages"]
-    E["Apply as-of queries and corporate-action rules"]
-    F{G2<br/>Data integrity passed?}
-    G["Block affected branch/run;<br/>record reason code"]
-    H["Quarantine affected security;<br/>retain audit trail"]
-    I["Build versioned Company Reference<br/>and Exposure Dataset"]
-    J["Create geographic exposures and classifications;<br/>peer groups, relationship graph,<br/>and membership history"]
-    K([Validated point-in-time data and features])
-    A --> B --> C --> D --> E --> F
-    F -->|Critical failure| G
-    F -->|Security-specific issue| H
-    F -->|Pass| I --> J --> K
+    A([Run configuration and decision cutoff]) --> B["Load candidate company/security list<br/>Market scope, sleeve and calendar"]
+    B --> C["Collect screening-level information<br/>Identifiers and listing status · basic financial condition<br/>Corporate descriptors · interday/intraday history and coverage"]
+    C --> D["Standardise identifiers, calendars, currencies,<br/>units and time zones; retain source timestamps"]
+    D --> E["Apply as-of rules and validate screen-data coverage"]
+    E --> F{G2 · Screening data integrity passed?}
+    F -->|Critical failure| X["Block affected run/market<br/>and record reason code"]
+    F -->|Security-specific issue| Q["Quarantine candidate<br/>and retain audit trail"]
+    F -->|Pass| R["Publish versioned screening dataset<br/>and candidate reference registry"]
+    R --> S([Stage 1 · Filter the candidate list])
     classDef input fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef process fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
-    class A,B input;
-    class C,D,E,I,J,K process;
+    class A,B,C input;
+    class D,E,R,S process;
     class F gate;
-    class G,H stop;
+    class X,Q stop;
 ```
+
+### Screening scope versus full data scope
+
+Stage 0 may use daily/interday history, summary liquidity measures, basic financial statements or ratios,
+company descriptions, sector/industry classifications, listing and corporate-action records, and coverage
+metadata for intraday data. These fields must be available as of the formation date. Intraday availability
+can be checked or sampled for suitability without downloading the full high-frequency history for every
+candidate.
+
+Do **not** build full NLP news sentiment/event features at this stage. Stage 0 may record whether a source
+or history exists, but the quantitative news vector is produced in Stage 2D only for the filtered research
+universe. This keeps costly extraction and feature construction downstream of the universe decision.
 
 ### Data timing and integrity
 
-Store each fact with **valid time** (period described) and **availability timestamp** (when the system
-could first have used it). A query as of time `t` must return only versions with availability timestamp
-`a ≤ t`; restatements create new vintages rather than overwriting history.
+Every datum used at any stage must preserve **valid time** (the period described) and **availability time**
+(when the system could first have used it). An as-of query at decision time `t` may use only versions with
+availability timestamp `a ≤ t`; later revisions create new vintages instead of overwriting history.
+These rules apply both to Stage 0 screening inputs and to all detailed sources retrieved after Stage 1.
 
 | Source | Timing rule |
 |---|---|
-| Daily/intraday prices and quotes | Bar end or session close plus publication lag; include delisted names in historical tests |
-| Fundamentals and guidance | Announcement/publication timestamp; use a conservative fallback if unavailable |
-| Estimates and consensus | First observed timestamp and subsequent revisions |
+| Daily/interday prices and quotes | Bar end or session close plus publication lag; include later-delisted names in historical tests |
+| Intraday trades/quotes | Exchange timestamp, receipt/first-seen time where available, session calendar and processing latency |
+| Fundamentals and guidance | Actual announcement/publication timestamp; conservative fallback if unavailable |
+| Estimates and consensus | First-observed timestamp and subsequent revisions |
 | Macro data | Official release timestamp and each historical vintage |
-| News | Publication time plus processing latency |
+| News (Stage 2 collection) | Publication time **and** first-seen/processing time |
 | Index membership | Announcement date, not only effective date |
-| Borrow and margin | Observation time |
+| Borrow and margin | Observation timestamp and provider freshness |
 
-Raw prices are preserved. Adjustment factors for splits, rights and dividends are applied on read; level
-filters use the unadjusted price actually available at the time. Halted, suspended or zero-volume names
-are not tradable.
+Preserve raw prices. Apply adjustment factors for splits, rights and dividends on read; level filters use the
+unadjusted price available at the time. Halted, suspended and zero-volume names are not tradable.
 
 | G2 severity | Examples | Action |
 |---|---|---|
-| Block | Look-ahead, schema/type mismatch, bad units/timezone, duplicate keys | Stop affected branch/run |
-| Quarantine | Stale or incomplete history, unexplained extreme return, unreconciled corporate action | Exclude affected name for this run |
-| Warn | Repeated closes, revision bursts | Record warning; do not silently suppress it |
+| Block | Look-ahead, schema/type mismatch, invalid units/time zone, duplicate keys or corrupted timestamps | Stop the affected branch/run |
+| Quarantine | Stale/incomplete history, unexplained extreme return, unreconciled corporate action | Exclude the affected name for this run |
+| Warn | Repeated closes, revision bursts or non-critical coverage gaps | Record warning; do not silently suppress it |
 
-### Company Reference and Exposure Dataset
-
-| Component | Contents | Downstream use |
-|---|---|---|
-| Geographic revenue and cost exposures | Dated revenue-share and cost-share vectors by economy | Macroeconomic models, currency analysis and stress tests |
-| Industry/sector and product-market classifications | Sector, industry, product-market, listing venue and trading currency | Universe selection, peer models and constraints |
-| Peer clusters | Classification- and data-based peer groups | Pooling and relative valuation |
-| Relationship graph | Directed customer, supplier, competitor and shared-input links | News propagation, macro transmission and contagion tests |
-| Membership history | Listing, delisting and identity changes | Survivorship-safe universes |
-
-Keep geographic revenue and cost exposures separate: a company may generate revenue in one economy and
-incur costs in another. Version all components point-in-time.
+**Stage 0 output:** a versioned candidate registry, screening snapshot, market/calendar context, coverage
+inventory and G2 evidence. It is not yet the full Company Reference and Exposure Dataset or the model feature
+store; those are completed for admitted names in Stage 2.
 
 ---
 
 ## 4. Stage 1: Universe Selection and Strategy Classification
 
-**Purpose:** Select companies suitable for analysis, not forecast returns. Historical formation must
-include later-delisted companies to avoid survivorship bias.
+**Purpose:** Select companies suitable for deeper research-data collection, not forecast returns. Use the
+Stage 0 screening dataset and fields available at the formation cutoff. Historical formation must include
+later-delisted companies to avoid survivorship bias.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
@@ -377,13 +404,17 @@ strategy classification → category score → admission**. Rejection reasons ar
 `DIST`, `LIQ`, `HIST`, `DATA`). Banks and insurers require sector-appropriate capital/funding metrics
 rather than generic debt/EBITDA rules.
 
+The screen may consider whether a usable source or event history is available; it must not use the
+post-filter NLP news score as an admission criterion. After G1, the data-coverage tier controls how deeply
+the surviving name is researched, not an unrecorded change to the fixed universe membership.
+
 | Category | Example measures |
 |---|---|
-| Financial distress and corporate status | 12-month probability of default estimated with a hazard model, distance to default, interest cover, concentrated debt maturities, cash runway |
-| Liquidity | Median daily dollar value traded, Amihud illiquidity ratio, bid–ask spread, zero-volume ratio and order-book depth |
+| Financial distress and corporate status | Screening-level distress/default score based on available point-in-time statements and market data, distance-to-default proxy, interest cover, debt maturities and cash runway where available; full Stage 2A distress model is assessed after admission |
+| Liquidity | Median daily dollar value traded, Amihud illiquidity, screening-level bid–ask spread and zero-volume ratio; depth proxy where available. Full order-book/depth retrieval is tiered after G1. |
 | Stability | Structural-break tests for market beta, volatility-model performance and usable history |
-| Business/market suitability | Profitability/cash conversion, valuation, trend, peer relationships and event coverage as relevant to the strategy class |
-| Operational/data coverage | Identifier quality, publication times, corporate actions, borrow data and intraday quote quality |
+| Business/market suitability | Profitability/cash conversion, valuation, trend, peer relationships and availability of event-source coverage |
+| Operational/data coverage | Identifier quality, corporate-action history, borrow-data availability and intraday-quote coverage |
 
 Metrics are robustly standardised within sector/peer group, direction-aligned and combined first within
 categories, then across categories. Here MAD is median absolute deviation, Φ is the standard normal
@@ -405,7 +436,7 @@ threshold/capacity for that sleeve. Scores and membership remain fixed for that 
 | Momentum/trend | Persistent 12–1 momentum (trailing 12-month return excluding the most recent month), adequate liquidity, manageable idiosyncratic noise |
 | Quality-value | Profitability, cash conversion, low accruals and sector-relative valuation |
 | Mean-reversion/pairs | Stable peer relationship and spread half-life; borrow/costs permit trading |
-| Event-driven | Reliable event stream, measurable announcement responses and sufficient coverage |
+| Event-driven | Screen-level event-source/history availability; detailed announcement-response estimates are measured after admission |
 | Intraday liquid large-cap | Tight spreads, depth, activity and potentially forecastable short-horizon volatility |
 
 ### Fixed membership and mandatory removals
@@ -431,79 +462,144 @@ controls.
 | T2 | Next ~120 | One-minute bars for intraday volatility/costs |
 | T3 | Remaining names | Daily data; tick data selectively around events |
 
-Sizes are budget examples, not fixed requirements. Allocate expensive data by expected analytical value,
-signal need, storage and provider cost; tier membership stays fixed within the universe version.
+Sizes are budget examples, not fixed requirements. Allocate detailed data depth by analytical need, storage,
+provider cost and expected signal value. Record the tier in the universe/run manifest; tiering governs the
+Stage 2 data request and does not silently replace or re-rank members of the frozen universe.
 
 ---
 
-## 5. Stage 2: Common Forecast Schema
+## 5. Stage 2: Post-filter Data Expansion and Common Forecast Schema
 
-All model families use the same forecast schema/interface so forecasts can be compared, combined,
-calibrated and passed into risk calculations consistently.
+**Purpose:** Once G1 has frozen the universe, retrieve the detailed inputs needed to model only the admitted
+names and relevant macro/market relationships. Validate and join the non-news inputs into a common core
+feature set, process the qualitative corpus through Stage 2D, and provide a standard forecast contract for
+both baseline and news-augmented model arms.
+
+### 2.1 Detailed data collection after filtering
+
+The Stage 2 request is generated from the **universe version + sleeve + decision cutoff + coverage tier**.
+Do not retrieve full target-security histories or run full NLP feature construction for rejected candidates,
+except where existing positions, historical retention or audit rules require it. A non-admitted supplier,
+customer, competitor or shared-input entity may still be used as a context node: retrieve only the linked data
+needed to analyse an admitted company, record the relationship and scope, and never silently add that entity
+to the research universe.
+
+| Data stream | Detailed data collected after G1 | Main use |
+|---|---|---|
+| Financial and corporate | Interday prices/returns, required historical depth, intraday bars as tiered, fundamentals, dated statements, estimates, guidance, corporate actions and benchmark series | Return distributions, volatility, distress, factor exposures and financial controls |
+| Macroeconomic and external | Point-in-time releases/vintages, consensus, rates, FX, commodities and other relevant indicators for markets/economies linked to the admitted universe | Macro states, regime probabilities, nowcasts, company exposures and shock scenarios |
+| Firm and microstructure | Peer panels, demand/input-cost/margin data, supplier/customer/competitor links, trades, quotes, order book, volume, borrow availability and execution-cost inputs | Firm economics, peer relationships, order flow, price impact, liquidity and execution estimates |
+| Qualitative source corpus | Licensed news, exchange announcements, filings, transcripts and other timestamped text tied to admitted firms/securities and relevant counterparties, sectors or economies | Raw input to Stage 2D; the text is not directly added to the baseline feature set |
+| Company reference and exposure data | Dated geography revenue/cost shares, company/industry/product classifications, peer groups, relationship graph and membership history | Macro transmission, entity linking, exposure-aware features, stress and attribution |
+
+The macro stream is not limited to company-specific rows: select the economies, release calendars and market
+series relevant to the admitted universe, its dated geographic exposures and the active sleeve. Likewise,
+relationship-based news retrieval may include relevant suppliers, customers, competitors or shared inputs, but
+must follow the dated relationship map and a documented retrieval scope. Company Reference and Exposure data
+is fully assembled here: keep dated revenue and cost shares separate; version geography and industry/product
+classifications; maintain peer groups, the entity relationship graph and membership history. These features
+support macro transmission, entity linking, stress testing and attribution.
+
+### 2.2 Build the shared core feature set
+
+Detailed source data pass through G2 checks before modelling. Use a common join key (security/entity, event or
+series identifier), decision timestamp, frequency/horizon, units/currency and availability rule. Preserve source
+lineage and missingness rather than silently filling unknown values.
+
+| Collection step | Required action | Output |
+|---|---|---|
+| 1. Freeze the request | Record universe version, decision cutoff, sleeve, required horizon, sources and coverage tier | Reproducible data-request manifest |
+| 2. Retrieve detailed inputs | Fetch only the required series/frequency/depth for admitted names and relevant exposures | Raw, timestamped source records |
+| 3. Validate and harmonise | Apply as-of joins, schema/unit/timezone checks, corporate-action handling, freshness checks and G2 reason codes | Validated point-in-time source tables |
+| 4. Build non-news features | Construct financial, macro, firm and microstructure covariates without NLP-derived news variables | Shared core feature set $X^{core}_{i,t,h}$ |
+| 5. Process qualitative text | Route eligible timestamped text to Stage 2D and publish quality/coverage metadata | Versioned $Z^{news}_{i,t,h}$ plus lineage |
+| 6. Build matched arms | Join $X^{core}$ to both variants; join $Z^{news}$ to the challenger only | Comparable baseline/challenger forecasts |
+
+**Define the experimental difference precisely:** “no-news” means no features produced by the Stage 2D
+NLP/LLM pipeline. The baseline may still use structured numerical information—such as reported revenue,
+earnings, estimates or official macro releases—when those values are part of the ordinary core feed and were
+available by the decision cutoff. Removing those ordinary data as well would change more than the news-feature
+treatment.
+
+**Missing data policy:** critical core-data or timestamp failures block the affected branch/run. Non-critical
+fallbacks are permitted only when pre-specified, tested and logged. If news is absent or fails QC, do not
+replace it with zero. The challenger is unavailable for the affected observation unless an approved missingness
+strategy applies; the baseline can continue only under the registered sample and operating policy. Report news
+coverage so missing sources cannot improve challenger results by silently shrinking the test sample.
+
+### 2.3 Common forecast contract
+
+All forecast-producing models use the same output schema so their predictive distributions can be compared,
+calibrated, combined and passed into risk calculations. The feature sets differ by experiment arm; the output
+contract does not.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    CORE["Point-in-time core feature set"] --> F0["Financial baseline<br/>No news"]
-    CORE --> M0["Macro baseline<br/>No news"]
-    CORE --> U0["Firm / microstructure baseline<br/>No news"]
-    CORE --> F1["Financial challenger<br/>Core features + Z_news(t)"]
-    CORE --> M1["Macro challenger<br/>Core features + Z_news(t)"]
-    CORE --> U1["Firm / microstructure challenger<br/>Core features + Z_news(t)"]
-    NEWS["Validated, versioned<br/>quantitative news covariates Z_news(t)"] --> F1
-    NEWS --> M1
-    NEWS --> U1
+    CORE["Post-filter core feature set X_core"] --> F0["Financial baseline<br/>X_core only"]
+    CORE --> M0["Macro baseline<br/>X_core only"]
+    CORE --> U0["Firm/microstructure baseline<br/>X_core only"]
+    CORE --> F1["Financial challenger<br/>X_core + Z_news"]
+    CORE --> M1["Macro challenger<br/>X_core + Z_news"]
+    CORE --> U1["Firm/microstructure challenger<br/>X_core + Z_news"]
+    NEWS["Stage 2D output<br/>validated Z_news + coverage flags"] -. "Only added to challengers" .-> F1
+    NEWS -.-> M1
+    NEWS -.-> U1
     F0 --> CONTRACT["Common forecast contract"]
     M0 --> CONTRACT
     U0 --> CONTRACT
     F1 --> CONTRACT
     M1 --> CONTRACT
     U1 --> CONTRACT
-    CONTRACT --> META["Attach security / key, decision time,<br/>horizon, target, quantiles, model version,<br/>feature lineage and label end date"]
-    META --> CHECK{Schema, timestamps<br/>and quantile ordering valid?}
+    CONTRACT --> META["Attach entity/security, decision time,<br/>horizon, target, quantiles, model/version,<br/>feature lineage and label end date"]
+    META --> CHECK{Schema, timestamps and<br/>quantile ordering valid?}
     CHECK -->|No| REJECT["Reject and log contract failure"]
-    CHECK -->|Yes| PAIR["Pair baseline and challenger by<br/>model family and test observation"]
-    PAIR --> OUT([Comparable forecast distributions<br/>for validation and benchmark evaluation])
-    classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    CHECK -->|Yes| PAIR["Pair by model family, target, horizon<br/>and test observation in Stage 2E"]
+    PAIR --> OUT([Comparable forecast distributions<br/>for paired validation and risk stages])
+    classDef baseline fill:#f3f4f6,stroke:#6b7280,color:#202938;
+    classDef challenger fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
+    classDef news fill:#eee9fb,stroke:#7762a8,color:#30244f;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
-    class F0,M0,U0 model;
-    class F1,M1,U1,NEWS model;
+    class F0,M0,U0 baseline;
+    class F1,M1,U1 challenger;
     class CORE,CONTRACT,META,PAIR,OUT process;
+    class NEWS news;
     class CHECK gate;
     class REJECT stop;
 ```
 
-For security `i`, decision time `t` and horizon `h`, emit quantiles on a shared grid:
+For security $i$, decision time $t$ and horizon $h$, emit quantiles on a shared grid:
 
 $$
 \mathcal T=\{0.01,0.025,0.05,0.10,0.25,0.50,0.75,0.90,0.95,0.975,0.99\}.
 $$
 
 The benchmark-relative excess-return target spans the selected forecast horizon, beginning after the
-decision point:
+ decision point:
 
 $$
 y^{(h)}_{i,t}=\sum_{s=2}^{h+1}(r_{i,t+s}-r_{b,t+s}).
 $$
 
-Each forecast includes security, decision timestamp, horizon, target definition, quantile values,
-model/version, training window, feature version, data lineage and label end date. Reject invalid
-timestamps/schema or crossing quantiles; record the label end date for purging.
+Each forecast includes security/entity, decision timestamp, horizon, target definition, quantile values,
+model/version, training window, feature version, data lineage and label end date. Reject invalid timestamps,
+schema or crossing quantiles; record the label end date for purging.
 
-Use mean quantile pinball loss as the primary quantile score; also track interval coverage, sharpness
-and the probability integral transform (PIT). More elaborate models are not admitted solely because they
-fit in sample.
+Use mean quantile pinball loss as the primary quantile score; also track interval coverage, sharpness and the
+probability integral transform (PIT). More elaborate models are not admitted solely because they fit in sample.
 
 ---
 
 ## 6. Stage 2A: Financial Forecast and Distress Model
 
-**Purpose:** Estimate return distributions, volatility, distress and changing factor exposures. Stage
-2E—not this stage—decides model eligibility.
+**Purpose:** Estimate return distributions, volatility, distress and changing factor exposures from the detailed
+financial data retrieved after G1. Stage 2E—not this model family—decides model eligibility.
 
-**News integration:** Compare the original financial specification with a matched version adding only the as-of $Z^{news}_t$ features. Test return, volatility and distress endpoints separately; Stage 2E defines the shared paired-evaluation protocol.
+**Paired variants:** Fit a no-news baseline on $X^{core}$ and a matched challenger on the same core data plus
+as-of $Z^{news}$. Keep the target, fold boundaries and tuning budget aligned; evaluate return, volatility and
+distress endpoints separately where relevant. Stage 2E defines the shared paired protocol.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
@@ -566,10 +662,12 @@ distress. Standardise features inside each training fold.
 
 ## 7. Stage 2B: Macroeconomic Exposure and Regime Model
 
-**Purpose:** Combine economy-level states with each firm's dated revenue/cost exposures and estimated
-sensitivities.
+**Purpose:** Combine economy-level states with each admitted firm's dated revenue/cost exposures and estimated
+sensitivities, using macro releases and other detailed data retrieved after G1.
 
-**News integration:** Preserve the original macro specification as the baseline. Its matched challenger may add timestamped news aggregates by macro topic, country, sector or exposed firm. Do not relabel news-derived features as official macro releases or causal shocks.
+**Paired variants:** Preserve the original macro specification as the baseline. Its matched challenger may add
+as-of news aggregates by macro topic, country, sector or exposed firm. Do not relabel news-derived features as
+official macro releases or causal shocks.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
@@ -688,7 +786,8 @@ otherwise fall back to validated daily estimates.
 
 **Purpose:** Convert timestamped qualitative information into a versioned, auditable vector of
 quantitative covariates that can be added to the financial, macroeconomic and firm/microstructure
-models. In the main forecasting architecture, News is a shared feature engine—not a fourth stand-alone
+models. The vector is denoted $Z^{news}_{i,t,h}$ when entity, decision time and horizon matter, and
+$Z^{news}_t$ when those indices are implicit. News is a shared feature engine—not a fourth stand-alone
 return-forecast family. It does not issue orders or independently declare a trade profitable.
 
 “Exogenous” here means that the news variables are external inputs relative to the core feature set
@@ -772,8 +871,9 @@ instruction. Validate it with Brier/log loss, reliability curves and chronologic
 - Intraday news is admissible only if processing latency fits the decision schedule. Until a directional
   edge is demonstrated after costs, intraday event information may be used conservatively for
   risk/volatility awareness rather than assumed directional alpha.
-- Quantitative news inputs may support forecast models and risk monitoring; only Stage 2E can grant
-  model eligibility, and downstream independent risk/execution gates remain mandatory.
+- Quantitative news inputs may support forecasts and, under a separately documented policy, risk monitoring.
+  During a paired benchmark, any news-based overlay must be identical across arms or evaluated separately.
+  Only Stage 2E can grant model eligibility, and downstream independent risk/execution gates remain mandatory.
 
 ---
 
@@ -785,15 +885,23 @@ counterpart; the architecture does not assume news has incremental predictive or
 
 ### Matched no-news baseline versus news-augmented challenger
 
-For each eligible model family and forecast target, register two arms before inspecting test results:
+For each model family, target, horizon and sleeve, register two arms before inspecting test results:
 
-- **Arm A — baseline:** the original feature set, with no $Z^{news}_t$ inputs.
+- **Arm A — baseline:** the original core feature set, with no $Z^{news}_t$ inputs.
 - **Arm B — challenger:** the same core feature set plus the versioned $Z^{news}_t$ vector.
 
 Hold constant the universe version, decision timestamps, labels, forecast horizons, walk-forward folds,
-model family, tuning budget, evaluation metrics and transaction-cost assumptions. Changes other than the
-addition of news features must be documented as a separate experiment. Compare forecasts on matched
-observations and report missing-news coverage separately.
+model family, tuning budget, evaluation metrics, downstream portfolio/risk rules, execution policy and
+transaction-cost assumptions. The intended difference is the addition of the NLP-derived news vector. A
+news-based safety overlay must either be applied identically to both arms or assessed in a separately registered
+experiment; otherwise its effect is confounded with the forecasting-variable test. Any other change is a
+separate experiment. Compare forecasts on matched observations and report missing-news coverage separately.
+
+Make the selection **per model family × target × horizon × sleeve**. The baseline and its challenger are
+alternative versions of one model slot, not two independent ensemble members by default. If the challenger
+fails to improve robustly, retain an eligible baseline; if it passes, it still requires shadow evaluation and G7
+approval before promotion. Do not count both copies in the ensemble unless that combined design is separately
+registered and justified.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
@@ -863,8 +971,10 @@ set is empty, output `NO-TRADE` for the affected name/sleeve.
 
 ### Combination and calibration
 
-Candidate approaches include inverse-loss weights, stacking and regime-conditional weights. Shrink
-estimated weights toward equal weights when evidence is weak. Quantile averaging:
+Candidate approaches include inverse-loss weights, stacking and regime-conditional weights. Use only the
+selected eligible variant for each baseline/challenger pair unless a separately validated ensemble design says
+otherwise; do not double-count near-duplicate variants from the same family. Shrink estimated weights toward
+equal weights when evidence is weak. Quantile averaging:
 
 $$
 \hat q_\tau=\sum_kw_k\hat q_{k,\tau},\qquad w_k\ge0,\quad\sum_kw_k=1.
@@ -1068,8 +1178,10 @@ Financing, borrow costs and stressed margin headroom are included in expected ne
 
 Trade only if expected benefit over the chosen horizon exceeds spread, commission and market-impact cost
 by the configured margin. Suppress changes within the no-trade band. Each position records invalidation
-conditions (forecast reversal, tail-quantile breach, stress-regime change, adverse news or rising
-distress probability).
+conditions (forecast reversal, tail-quantile breach, stress-regime change, material new information under the
+pre-registered policy, or rising distress probability). For a baseline-versus-news experiment, downstream
+news-based overlays must be identical across arms or assessed separately; otherwise the economic comparison
+cannot isolate the forecasting value of $Z^{news}$.
 
 Every report—trade or `NO-TRADE`—contains:
 
@@ -1187,7 +1299,7 @@ alter a fixed universe version without an approved re-formation.
 | $e^{rev}_{i,c}$, $e^{cost}_{i,c}$ | Security $i$'s dated revenue and cost exposure shares for economy $c$ |
 | $f_{c,t}$ | Macroeconomic state/factor for economy $c$ at time $t$ |
 | $q_{i,t}(\tau)$ | Forecast quantile at probability level $\tau$ |
-| $Z^{news}_t$ | Versioned, point-in-time quantitative news covariate vector produced by NLP/LLM extraction and validation |
+| $Z^{news}_{i,t,h}$ | Versioned, point-in-time quantitative news covariate vector produced by NLP/LLM extraction and validation; indexed to the relevant entity, decision time and horizon |
 | No-news baseline / news challenger | Matched core-feature model / same model family and target with quantitative news covariates added |
 | Incremental news value | Paired out-of-sample change in forecast and economic metrics attributable to adding news features under the registered experiment |
 | $\hat{\Sigma}$ | Estimated covariance matrix |
@@ -1239,7 +1351,7 @@ Every run creates a unique `run_id` and records:
 | Data lineage | Provider/dataset, extraction and observation timestamps, availability-time rule, row counts and schema version |
 | News features | Source/coverage counts, publication and first-seen times, NLP/LLM and prompt versions, feature schema, entity-map/relationship-graph version, quality flags and missingness reasons |
 | Universe | Universe version, eligible names, exits and reason codes |
-| Models/validation | Model/feature versions, training window, fit status, fold/purge/embargo settings, paired baseline/challenger metrics, matched sample coverage, uncertainty estimates, calibration/net-cost results, trial count and promotion decision |
+| Models/validation | Registered experiment ID, `BASELINE`/`NEWS_CHALLENGER` arm, model/feature and NLP/prompt versions, training window, fold/purge/embargo settings, paired metrics, matched sample/coverage, uncertainty, calibration/net-cost results, trial count and promotion decision |
 | Portfolio/decision | Forecasts, current/target weights, costs, risk contributions, binding constraints, `TRADE`/`REDUCE`/`HOLD`/`NO-TRADE` and reason codes |
 | Execution | Order requests, submissions/fills, timestamps, fees, cancellations/rejections and implementation shortfall |
 | Outputs | Per-security and per-sleeve plots, diagnostics, warnings and narrative report |
@@ -1256,20 +1368,25 @@ margin, hard exposure limits, kill switches or reconciliation.
 
 ## 16. Implementation Roadmap and Readiness Gates
 
+Build the system in the same order it runs. Do not implement a downstream model until the upstream contract
+and its failure tests pass.
+
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
-| 1. Data foundation | Point-in-time schemas, calendars, identifiers, corporate actions and lineage | As-of queries and schema/timestamp/unit tests pass |
-| 2. Baseline research | Benchmarks, costs and fixed-universe builder | Survivorship/look-ahead tests pass; clean runs reproduce results |
-| 3. Validation | Walk-forward folds, purging/embargo, paired benchmark protocol and trial registry | Leakage tests pass; folds, matched observations, uncertainty and all trials are logged |
-| 4. Forecast layers | Financial, macro and firm/micro models with no-news baselines and matched news-augmented challengers; versioned AI-NLP feature engine | Baseline/challenger forecasts, news coverage, calibration, incremental value and model failure states are measured |
-| 5. Risk/optimisation | Covariance/ES, stress library, optimiser and sleeve allocator | Constraint tests pass; infeasibility cannot create tradable weights |
-| 6. Execution simulation | Scheduling, fill/cost model and shortfall attribution | Costs/fills are stress-tested and documented |
-| 7. Paper trading | Scheduled end-to-end runs without capital at risk | Reconciliation, stale-data, restart, latency and kill-switch tests pass |
-| 8. Controlled deployment | Small approved allocation with monitoring and broker permissions | Written sign-off, limits, rollback and incident response tested |
-| 9. Challenger lifecycle | Shadow tests and approved-model/candidate-model governance | Out-of-sample criteria met; versioned rollback available |
+| 1. Screening foundation (Stage 0) | Candidate/ticker registry, point-in-time screening data, calendars, identifiers, corporate status and G2 checks | As-of, schema, timestamp, units and coverage tests pass; the screen uses only information available at its cutoff |
+| 2. Universe formation (Stage 1 / G1) | Screening filters, rejection reason codes, strategy classification, fixed universe version and coverage tiers | Survivorship/look-ahead tests pass; membership is reproducible and deep data requests are not issued before G1 |
+| 3. Post-filter data expansion (Stage 2) | Run-specific data manifest, detailed financial/macro/firm inputs, company exposure graph, source lineage and core feature store $X^{core}$ | Source joins, vintages, freshness, units, missingness and G2 failure paths pass; only admitted names receive full analysis-data requests |
+| 4. No-news baseline models (Stages 2A–2C) | Financial, macro and firm/microstructure baselines plus the common forecast contract | Each baseline has leakage-safe targets, a simple comparator, stable outputs and walk-forward evaluation |
+| 5. AI-NLP feature engine (Stage 2D) | Timestamped text ingestion, entity resolution, fixed extraction schema, quantitative $Z^{news}$ features, coverage and version lineage | Text availability, duplicates, evidence/schema, processing latency, missingness and feature stability tests pass |
+| 6. Paired challenger evaluation (Stage 2E / G3) | Matched news-augmented challengers, registered experiment pairs, paired loss/economic results, uncertainty and multiple-testing controls | Baseline/challenger differ only by registered NLP-derived features; model eligibility and incremental value are reported separately; no challenger auto-promotes |
+| 7. Risk, optimisation and sizing (Stages 3–5) | Covariance/expected shortfall, stress library, cost-aware optimiser, sleeve allocation, leverage and margin checks | Constraint and infeasibility tests pass; invalid inputs or infeasible portfolios cannot create tradable weights |
+| 8. Execution simulation and hard controls (Stage 6) | Fill/cost model, order lifecycle, independent limits, kill switch and reconciliation | Cost/fill stress tests, duplicate/restart, stale-data, margin, broker reconciliation and emergency-stop tests pass |
+| 9. Monitoring, shadow and controlled release (Stage 7 / G7) | Per-security/sleeve plots, structured reports, drift monitoring, paper/shadow operation, approvals and rollback | Reproducible runs, stable calibration/coverage/latency, tested incident response, written approval and versioned rollback are demonstrated |
 
-A stage is complete only when its contracts, positive and failure tests, point-in-time controls,
-versioned configuration, reason codes, reproducible outputs and downstream failure actions are documented.
+A stage is complete only when its contracts, positive and failure tests, point-in-time controls, versioned
+configuration, reason codes, reproducible outputs and downstream failure actions are documented. The
+baseline remains an explicit control throughout development; it must not be deleted just because a challenger
+shows promise in one fold or one metric.
 
 ## Selected technical references
 
