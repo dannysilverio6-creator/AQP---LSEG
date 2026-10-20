@@ -1,13 +1,9 @@
 # AQP — Multi-Market Quantitative Investment Pipeline
 
-**Architecture Version 14 · workflow realignment around filter-first data collection and paired news benchmarks**
-
 > **Status:** Research and system-design specification, not evidence of profitability or production
 > readiness. Model thresholds are provisional. Live use requires tested implementation, validated data and
 > broker interfaces, approved risk limits, operational testing and explicit sign-off.
->
-> **Math rendering:** Formulas use LaTeX Markdown (`$...$` for inline maths and `$$...$$` for display
-> equations). Use a math-enabled Markdown preview if commands such as `\mathrm` display literally.
+
 
 | Scope | Design |
 |---|---|
