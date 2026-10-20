@@ -1,38 +1,56 @@
-# Advance Quantitative Investment Pipeline
+# AQP — Multi-Market Quantitative Investment Pipeline
 
+**Architecture Version 13 · editorial revision: reduced repetition and clearer executive summary**
 
 > **Status:** Research and system-design specification, not evidence of profitability or production
 > readiness. Model thresholds are provisional. Live use requires tested implementation, validated data and
 > broker interfaces, approved risk limits, operational testing and explicit sign-off.
+>
+> **Math rendering:** Formulas use LaTeX Markdown (`$...$` for inline maths and `$$...$$` for display
+> equations). Use a math-enabled Markdown preview if commands such as `\mathrm` display literally.
 
 | Scope | Design |
 |---|---|
-| Markets | ASX or US equities |
-| Sleeves | ASX interday/US interday, ASX intraday, US intraday |
+| Markets | ASX and US equities |
+| Sleeves | ASX interday, US interday, ASX intraday, US intraday |
 | Forecast architecture | Financial, macroeconomic and firm/microstructure model families; a shared AI-NLP news feature engine creates quantitative covariates for matched news-augmented challengers |
 | Main flow | Data → fixed research universe → forecasts → validation → risk/optimisation → leverage/pre-trade gates → execution → monitoring/reporting |
 | Out of scope | Full source code, provider API instructions and production runbooks |
 
 ## Executive Summary
 
-This is a **gated research-to-execution system**, not a single predictive model. Its governing rules
-are:
+AQP is a **gated research-to-execution pipeline**, not one stand-alone prediction algorithm. It joins
+point-in-time data, company selection, forecasting, validation, portfolio construction, risk controls,
+execution and monitoring. Its four sleeves (ASX/US × interday/intraday) share infrastructure but retain
+separate calendars, cost assumptions, data depth and risk budgets.
 
-1. Use point-in-time data and preserve historical vintages; do not leak future information.
-2. Separate company-universe selection from return forecasting.
-3. Standardise forecasts as predictive quantiles with metadata and lineage.
-4. For each eligible model family, retain a no-news baseline and compare it with a matched challenger
-   that adds only the versioned quantitative news covariates.
-5. Validate all forecasts out of sample and after realistic costs before giving them weight; test
-   whether news adds incremental value rather than assuming it does.
-6. Keep portfolio risk, leverage, order limits and kill switches independent of forecasts.
-7. Generate reproducible run records, plots and a narrative report from measured outputs.
-8. Promote challengers only after paired validation, shadow testing, approval and a rollback plan.
+The defining change in this architecture is the **shared AI-NLP news feature engine**. It converts
+point-in-time news, filings, transcripts and announcements into a versioned quantitative vector
+$Z^{news}_t$. That vector can be added to the financial, macroeconomic and firm/microstructure model
+families as an external predictive input. It is not a fourth return-model family, an order generator or
+proof of a causal relationship.
 
-A sophisticated design does not establish an economic edge. Test the complete system on chronological
-out-of-sample data and realistic transaction costs before paper trading or live deployment.
+Every news-augmented candidate is tested against a matched no-news baseline. The universe, targets,
+horizons, folds, model family, tuning budget and cost assumptions are held constant; the registered
+experiment changes only whether the news features are included. A challenger must show robust
+out-of-sample improvement, acceptable calibration and net-of-cost value before shadow testing and
+independent promotion review. If evidence is weak or inconclusive, the eligible baseline or current
+approved model remains in place.
 
+**The operating path:** point-in-time data → fixed research universe → financial, macro and firm/micro
+forecasts → paired validation and model eligibility → risk-aware portfolio construction → separate
+leverage and trade gates → controlled execution → monitoring and reproducible reporting.
 
+The pipeline defaults to no-trade when required checks fail. Forecasts cannot override data-integrity
+gates, portfolio limits, leverage/margin checks, order limits, reconciliation or a kill switch. A detailed
+design is not evidence of profitability: every component still requires implementation, chronological
+out-of-sample testing, realistic costs, shadow/paper operation and explicit approval before any live use.
+
+### Terminology convention
+
+G1–G7 and the **Company Reference and Exposure Dataset** are AQP-specific architecture labels. Numerical
+thresholds are provisional research settings unless explicitly approved; they are not universal industry
+or regulatory standards.
 
 ## Contents
 
@@ -56,10 +74,9 @@ out-of-sample data and realistic transaction costs before paper trading or live 
 12. [Stage 5: Leverage and Position Report](#12-stage-5-leverage-and-position-report)
 13. [Stages 6–7: Execution, Controls and
     Monitoring](#13-stages-67-execution-hard-limits-monitoring-and-learning)
-14. [Core Design Decisions](#14-core-design-decisions)
-15. [Notation and Open Decisions](#15-notation-glossary-and-open-decisions)
-16. [Run Contract and Outputs](#16-operating-contract-and-run-outputs)
-17. [Implementation Roadmap](#17-implementation-roadmap-and-readiness-gates)
+14. [Notation, Glossary and Open Decisions](#14-notation-glossary-and-open-decisions)
+15. [Operating Contract and Run Outputs](#15-operating-contract-and-run-outputs)
+16. [Implementation Roadmap](#16-implementation-roadmap-and-readiness-gates)
 
 ---
 
@@ -150,71 +167,39 @@ flowchart TB
 
 ### 1C. Matched benchmark and promotion path
 
-The registered experiment isolates the effect of adding quantitative news features. Any other change in
-model family, tuning budget or evaluation design must be documented as a separate trial.
+The full statistical protocol is in Stage 2E. This overview shows the decision sequence only.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 26, "wrappingWidth": 170, "diagramPadding": 16, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    INPUT["Same point-in-time data, universe, labels and folds"] --> BASE["Arm A · No-news baseline<br/>Original core feature set"]
-    INPUT --> CHAL["Arm B · News challenger<br/>Same core features + Z(news)"]
-    BASE --> PAIR["Pair forecasts on the same test observations<br/>Match family · target · horizon · decision time"]
+    INPUT["Same point-in-time sample, universe,<br/>target and forecast horizon"] --> BASE["Baseline<br/>Original features only"]
+    INPUT --> CHAL["Challenger<br/>Original features + Z(news)"]
+    BASE --> PAIR["Paired out-of-sample comparison<br/>Accuracy · calibration · uncertainty · net costs"]
     CHAL --> PAIR
-    PAIR --> TEST["Evaluate absolute skill and calibration<br/>Paired forecast loss · uncertainty · net-of-cost value<br/>Coverage · regime stability · ablation · multiple testing"]
-    TEST --> G3{G3 · Absolute model eligibility passed?}
-    G3 -->|No| EXCLUDE["Exclude candidate and log reason"]
-    G3 -->|Yes| VALUE{Robust incremental value from news?}
-    VALUE -->|No / inconclusive| RETAIN["Retain eligible baseline or current approved model"]
-    VALUE -->|Yes| SHADOW["Run challenger in shadow mode<br/>Check latency · feature coverage · calibration"]
-    SHADOW --> G7{G7 · Independent approval and promotion criteria pass?}
-    G7 -->|No| RETAIN
-    G7 -->|Yes| APPROVE["Versioned approved challenger<br/>with feature-coverage policy and rollback plan"]
-    EXCLUDE --> RETAIN
+    PAIR --> VALUE{Robust incremental value<br/>and model eligibility?}
+    VALUE -->|No / inconclusive| KEEP["Keep eligible baseline or<br/>current approved model"]
+    VALUE -->|Yes| SHADOW["Shadow test and independent review"]
+    SHADOW --> G7{G7 · Promotion approved?}
+    G7 -->|No| KEEP
+    G7 -->|Yes| PROMOTE["Versioned promotion<br/>Monitoring and rollback plan"]
 
-    classDef baseline fill:#f3f4f6,stroke:#6b7280,color:#202938,stroke-width:1px;
-    classDef challenger fill:#edf7ed,stroke:#54845e,color:#1d4026,stroke-width:1px;
-    classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
+    classDef baseline fill:#f3f4f6,stroke:#6b7280,color:#202938;
+    classDef challenger fill:#edf7ed,stroke:#54845e,color:#1d4026;
+    classDef process fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
-    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410,stroke-width:1px;
-    classDef approved fill:#e3f3e5,stroke:#2f7a43,color:#174923,stroke-width:1.5px;
-    class INPUT,PAIR,TEST process;
-    class BASE,RETAIN baseline;
-    class CHAL,SHADOW challenger;
-    class G3,VALUE,G7 gate;
-    class EXCLUDE stop;
-    class APPROVE approved;
+    class INPUT,PAIR,SHADOW process;
+    class BASE,KEEP baseline;
+    class CHAL,PROMOTE challenger;
+    class VALUE,G7 gate;
 ```
 
 ### How to read the diagrams
 
-- **Solid arrows** show the normal data or control flow. **Dotted arrows** show the news-feature input
-added to a challenger; they do not imply that news is a causal driver.
-- **G1–G7** are AQP's project-defined decision gates. A gate failure must produce a reason code and an
-approved safe action; it must never be bypassed by a forecast.
-- **Baseline and challenger** are paired research variants. A challenger is not promoted merely because
-it fits successfully or scores better on one metric.
+Solid arrows show normal data/control flow; dotted arrows show news-feature inputs, not causal claims.
+G1–G7 are project-defined gates. Failures require a reason code and an approved safe action. A
+news-augmented challenger is never promoted based on fit or one favourable metric alone.
 
-### Approved-model / candidate-model lifecycle
-
-Monitoring may trigger a challenger review, but a challenger never replaces the production model
-automatically.
-
-```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
-flowchart TB
-    MON["MONITOR<br/>Detect drift or degradation"] --> TEST["ASSESS CHALLENGER<br/>Out-of-sample tests and shadow run"]
-    TEST --> G7{G7<br/>Promotion criteria met?}
-    G7 -->|Yes| RELEASE["VERSIONED RELEASE<br/>Independent approval and rollback plan"]
-    G7 -->|No / unclear| KEEP["RETAIN CURRENT MODEL<br/>Continue monitoring"]
-    classDef review fill:#eaf2f8,stroke:#477b9e,color:#19364a;
-    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
-    classDef safe fill:#edf7ed,stroke:#54845e,color:#1d4026;
-    classDef retain fill:#f3f4f6,stroke:#6b7280,color:#202938;
-    class MON,TEST review;
-    class G7 gate;
-    class RELEASE safe;
-    class KEEP retain;
-```
+Model promotion is covered with the paired benchmark in Stage 2E and the operational learning loop in Stage 7.
 
 ### Sleeves
 
@@ -518,12 +503,7 @@ fit in sample.
 **Purpose:** Estimate return distributions, volatility, distress and changing factor exposures. Stage
 2E—not this stage—decides model eligibility.
 
-**News integration:** For each financial endpoint selected for the experiment, build a no-news baseline
-from the original financial feature set and a matched challenger that adds only the eligible, as-of
-quantitative news vector $Z^{news}_t$. Use the same target, horizon, training/test dates, model family,
-tuning budget and cost assumptions. News covariates may affect return quantiles, volatility or distress
-only where that relationship is explicitly specified and tested; they do not replace the core financial
-features.
+**News integration:** Compare the original financial specification with a matched version adding only the as-of $Z^{news}_t$ features. Test return, volatility and distress endpoints separately; Stage 2E defines the shared paired-evaluation protocol.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
@@ -589,11 +569,7 @@ distress. Standardise features inside each training fold.
 **Purpose:** Combine economy-level states with each firm's dated revenue/cost exposures and estimated
 sensitivities.
 
-**News integration:** Preserve a macro baseline using macro releases, filtered states, dated exposures
-and the original macro features. Its matched challenger may add timestamped, aggregated news covariates
-by macro topic, country, sector or exposed firm, provided the aggregation is available by the decision
-cut-off. Do not treat news-derived event aggregates as official macro releases or as causal shocks
-merely because they enter the model as external predictors.
+**News integration:** Preserve the original macro specification as the baseline. Its matched challenger may add timestamped news aggregates by macro topic, country, sector or exposed firm. Do not relabel news-derived features as official macro releases or causal shocks.
 
 ```mermaid
 %%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
@@ -750,21 +726,10 @@ flowchart TB
 
 ### Processing and quantitative feature schema
 
-1. **Timestamp and provenance:** retain source, publication timestamp, first-seen/processing timestamp,
-   source credibility, extraction version, prompt version, model version and the precise decision
-   cut-off.
-2. **Entity resolution:** deduplicate syndicated/repeated stories and map evidence to relevant
-   securities, firms, sectors, industries, geographies, macro topics and dated business relationships.
-3. **Structured NLP extraction:** extract a fixed schema rather than treating a free-form LLM summary as
-   a numeric feature. Retain supporting text spans/source IDs for audit.
-4. **Quantification:** transform validated event fields into calibrated probabilities, signed direction,
-   severity/magnitude, novelty/residual surprise, source credibility, extraction confidence and expected
-   persistence/decay. Preserve uncertainty and coverage.
-5. **Aggregation/propagation:** construct entity-, sector-, geography- and macro-topic features using
-   only relationships valid at the decision time. Apply documented decay and latency policies.
-6. **Versioned publication:** produce $Z^{news}_t$ with schema/model versions, as-of timestamps,
-   lineage, quality flags and explicit missingness indicators. Store raw text and licensed data
-   according to source terms and access controls.
+1. **Validate timing and provenance:** retain publication and first-seen/processing times, source, extraction/prompt/model versions and the decision cut-off.
+2. **Resolve entities and extract evidence:** deduplicate stories, map them to relevant firms, securities, sectors, geographies and macro topics, and preserve source spans or IDs.
+3. **Build quantitative features:** use a fixed schema to quantify event type, direction, novelty, severity, credibility, calibrated probability and expected persistence/decay; retain uncertainty and coverage.
+4. **Aggregate and publish:** use only point-in-time relationships, apply documented decay/latency rules and publish versioned $Z^{news}_t$ with lineage, quality and missingness flags. Retain licensed data according to source terms and access controls.
 
 | Feature group | Examples | Intended use |
 |---|---|---|
@@ -1150,25 +1115,9 @@ flowchart TB
 
 ### Independent safety controls
 
-```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
-flowchart TB
-    A[Proposed or live order] --> B["Check security, gross leverage<br/>and participation limits"]
-    B --> C[Check daily loss and drawdown thresholds]
-    C --> D["Check forecast-to-realised divergence<br/>and market state"]
-    D --> E{Any hard limit breached?}
-    E -->|No| F[Permit activity within approved limits]
-    E -->|Yes| G["Block new risk; cancel/flatten<br/>as policy requires"]
-    G --> H["Log incident; require review<br/>before restart"]
-    classDef check fill:#eaf2f8,stroke:#477b9e,color:#19364a;
-    classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
-    classDef safe fill:#edf7ed,stroke:#54845e,color:#1d4026;
-    classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410;
-    class A,B,C,D check;
-    class E gate;
-    class F safe;
-    class G,H stop;
-```
+Security, exposure, daily-loss, drawdown and market-state checks run independently of the forecast and
+optimisation models. A breach blocks new risk and triggers the configured cancellation, risk-reduction
+and incident-review policy. These controls cannot be bypassed by a model output.
 
 ### Hard limits and monitoring
 
@@ -1229,27 +1178,7 @@ alter a fixed universe version without an approved re-formation.
 
 ---
 
-## 14. Core Design Decisions
-
-- Quantile distributions and metadata provide a common interface for financial, macroeconomic and
-  firm/microstructure model families; AI News is a shared quantitative feature engine, not a mandatory
-  fourth return-forecast channel.
-- Every tested news-augmented candidate has a matched no-news baseline; only robust incremental
-  out-of-sample value can justify its promotion.
-- Validation precedes eligibility and combination; paired samples, news-feature coverage, trial counts
-  and net-of-cost results are recorded.
-- Geographic revenue/cost exposures are versioned separately; one relationship graph supports
-  macroeconomic transmission, news propagation and contagion stress.
-- Membership is fixed within each universe version; mandatory removals are logged and do not trigger
-  automatic replacement.
-- Data depth follows model need and provider/storage cost.
-- Relative weights, total leverage, and order authorisation are separate decisions.
-- Hard limits and kill switches remain independent of model outputs.
-- AI-generated narrative reports explain structured results only; they do not invent metrics or issue orders.
-
----
-
-## 15. Notation, Glossary and Open Decisions
+## 14. Notation, Glossary and Open Decisions
 
 | Symbol / term | Meaning |
 |---|---|
@@ -1300,7 +1229,7 @@ alter a fixed universe version without an approved re-formation.
 
 ---
 
-## 16. Operating Contract and Run Outputs
+## 15. Operating Contract and Run Outputs
 
 Every run creates a unique `run_id` and records:
 
@@ -1315,11 +1244,8 @@ Every run creates a unique `run_id` and records:
 | Execution | Order requests, submissions/fills, timestamps, fees, cancellations/rejections and implementation shortfall |
 | Outputs | Per-security and per-sleeve plots, diagnostics, warnings and narrative report |
 
-**Terminal status:**
-- `PASS`: required data, models, risk and execution checks passed.
-- `DEGRADED`: a non-critical component failed and an approved fallback is used; trading remains subject
-  to every hard gate.
-- `BLOCKED`: a critical check failed; do not initiate new risk.
+Run status uses the `PASS`, `DEGRADED` and `BLOCKED` definitions in Section 2. Store the status and
+reason codes in every run manifest.
 
 The narrative report must be generated from structured outputs. An AI-generated summary may describe
 measured results but must not invent numbers, override a gate or issue an order. Plot/report failures
@@ -1328,7 +1254,7 @@ margin, hard exposure limits, kill switches or reconciliation.
 
 ---
 
-## 17. Implementation Roadmap and Readiness Gates
+## 16. Implementation Roadmap and Readiness Gates
 
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
@@ -1342,33 +1268,13 @@ margin, hard exposure limits, kill switches or reconciliation.
 | 8. Controlled deployment | Small approved allocation with monitoring and broker permissions | Written sign-off, limits, rollback and incident response tested |
 | 9. Challenger lifecycle | Shadow tests and approved-model/candidate-model governance | Out-of-sample criteria met; versioned rollback available |
 
-A stage is complete only when its input/output schema, unit and failure tests, point-in-time handling,
-versioned configuration, logs and reason codes, reproducible outputs, baseline/invariants and downstream
-failure actions are documented.
+A stage is complete only when its contracts, positive and failure tests, point-in-time controls,
+versioned configuration, reason codes, reproducible outputs and downstream failure actions are documented.
 
-**Final rule:** research models propose forecasts; the validated pipeline proposes target positions;
-only independent risk and execution controls authorise orders.
+## Selected technical references
 
-## Architecture update: AI News benchmarking rule
-
-The architecture in this version makes Stage 2D a feature-engineering stage. It publishes the versioned
-covariate vector $Z^{news}_t$, which may be joined to the financial, macroeconomic and
-firm/microstructure model families. For each included model family and target, a matched no-news
-baseline is retained. The experiment must hold the universe, observations, labels, forecast horizon,
-fold dates, model family, tuning budget and cost assumptions constant, changing only the news-feature
-inclusion. The result can be a positive, negative or inconclusive contribution; no positive effect is
-assumed in advance.
-
-The paired result is a research finding, not permission to trade. Model eligibility remains governed by
-G3, promotion by G7, and all portfolio, leverage, final-trade, execution and kill-switch controls remain
-independent. An NLP-derived feature is treated as a predictive input, not as proof of causal exogeneity.
-
-## Terminology and rendering references
-
-**Terminology note:** recognised technical names below identify established methods; they are not all
-regulatory standards. The architecture's stages, gates and dataset name are intentionally
-project-defined. Risk-control legal obligations depend on market, instrument and entity; this design is
-not a compliance opinion.
+The references below identify established methods and external terminology; they do not certify this
+design as profitable or compliant. Legal obligations depend on the instrument, entity and jurisdiction.
 
 - [CFA Institute — Backtesting and
   Simulation](https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/backtesting-and-simulation):
