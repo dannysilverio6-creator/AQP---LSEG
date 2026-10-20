@@ -101,44 +101,45 @@ The first data pull is for screening. Detailed research data and full news proce
 G1 has created the fixed, versioned universe.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
-    START([Run config + decision cutoff]) --> SCREEN["Stage 0 · Screening dataset<br/>Company/security list · basic corporate data<br/>Interday/intraday screening history · coverage"]
-    SCREEN --> G2{G2 · Screening data valid?}
+    START([Run config + decision cutoff]) --> SCREEN["Stage 0 - Screening dataset<br/>Company/security list; basic corporate data<br/>Interday/intraday screening history and coverage"]
+    SCREEN --> G2{G2 - Screening data valid?}
     G2 -->|Fail| BLOCK["Quarantine affected data or<br/>block the affected run"]
-    G2 -->|Pass| FILTER["Stage 1 · Filter candidate companies<br/>Status · distress · liquidity · history · strategy fit"]
-    FILTER --> G1{G1 · Universe gate passed?}
+    G2 -->|Pass| FILTER["Stage 1 - Filter candidate companies<br/>Status; distress; liquidity; history; strategy fit"]
+    FILTER --> G1{G1 - Universe gate passed?}
     G1 -->|Fail| REJECT["Record rejection reason;<br/>retain history for audit"]
-    G1 -->|Pass| EXPAND["Stage 2 · Collect detailed data<br/>for the admitted universe only"]
+    G1 -->|Pass| EXPAND["Stage 2 - Collect detailed data<br/>for admitted companies only"]
 
-    EXPAND --> CORE["Validated core feature store X_core<br/>Financial · macro · firm/microstructure<br/>Dated company exposures and source lineage"]
-    EXPAND --> TEXT["Raw qualitative corpus<br/>News · transcripts · filings · announcements"]
-    TEXT --> NEWS["Stage 2D · AI-NLP feature engine<br/>Text → validated quantitative Z_news"]
+    EXPAND --> CORE["Validated core feature store: X_core<br/>Financial; macro; firm/microstructure<br/>Dated company exposures and source lineage"]
+    EXPAND --> TEXT["Raw qualitative corpus<br/>News; transcripts; filings; announcements"]
+    TEXT --> NEWS["Stage 2D - AI-NLP feature engine<br/>Text to validated quantitative Z_news"]
 
-    subgraph MODELS["STAGE 2 · MATCHED FORECAST ARMS"]
-        direction TB
-        FIN["Financial family<br/>Baseline: X_core · Challenger: X_core + Z_news"]
-        MAC["Macroeconomic family<br/>Baseline: X_core · Challenger: X_core + Z_news"]
-        MICRO["Firm / microstructure family<br/>Baseline: X_core · Challenger: X_core + Z_news"]
-    end
-    CORE --> FIN
-    CORE --> MAC
-    CORE --> MICRO
-    NEWS -. "Challenger inputs only" .-> FIN
-    NEWS -. "Challenger inputs only" .-> MAC
-    NEWS -. "Challenger inputs only" .-> MICRO
+    CORE --> FIN_BASE["Financial baseline<br/>X_core only; no news variables"]
+    CORE --> FIN_CHAL["Financial challenger<br/>X_core + Z_news"]
+    CORE --> MAC_BASE["Macro baseline<br/>X_core only; no news variables"]
+    CORE --> MAC_CHAL["Macro challenger<br/>X_core + Z_news"]
+    CORE --> MICRO_BASE["Firm/microstructure baseline<br/>X_core only; no news variables"]
+    CORE --> MICRO_CHAL["Firm/microstructure challenger<br/>X_core + Z_news"]
 
-    FIN --> CONTRACT["Common forecast contract<br/>Target · horizon · quantiles · uncertainty · lineage"]
-    MAC --> CONTRACT
-    MICRO --> CONTRACT
-    CONTRACT --> G3["Stage 2E · G3<br/>Absolute eligibility; challenger test where relevant"]
+    NEWS -.-> FIN_CHAL
+    NEWS -.-> MAC_CHAL
+    NEWS -.-> MICRO_CHAL
+
+    FIN_BASE --> CONTRACT["Common forecast contract<br/>Target; horizon; quantiles; uncertainty; lineage"]
+    FIN_CHAL --> CONTRACT
+    MAC_BASE --> CONTRACT
+    MAC_CHAL --> CONTRACT
+    MICRO_BASE --> CONTRACT
+    MICRO_CHAL --> CONTRACT
+    CONTRACT --> G3["Stage 2E - G3<br/>Eligibility and paired challenger evaluation"]
     G3 -->|No eligible forecast| NOTRADE["NO-TRADE for affected name/sleeve<br/>Record reason code"]
-    G3 -->|Eligible forecast(s)| PORT["Stages 3–4 · Portfolio risk and optimisation<br/>Covariance · tail risk · stress · transaction costs"]
-    PORT --> G4{G4 · Portfolio constraints pass?}
+    G3 -->|Eligible forecast| PORT["Stages 3-4 - Portfolio risk and optimisation<br/>Covariance; tail risk; stress; transaction costs"]
+    PORT --> G4{G4 - Portfolio constraints pass?}
     G4 -->|No| NOTRADE
-    G4 -->|Yes| SIZE["Stage 5 · Sizing and leverage<br/>G5 margin checks · G6 trade checks"]
-    SIZE --> EXEC["Stage 6 · Approved execution<br/>Independent order limits · reconciliation"]
-    EXEC --> MON["Stage 7 · Monitoring and reporting<br/>Forecast/news drift · costs · plots · run manifest"]
+    G4 -->|Yes| SIZE["Stage 5 - Sizing and leverage<br/>G5 margin checks; G6 trade checks"]
+    SIZE --> EXEC["Stage 6 - Approved execution<br/>Independent order limits; reconciliation"]
+    EXEC --> MON["Stage 7 - Monitoring and reporting<br/>Forecast/news drift; costs; plots; run manifest"]
 
     classDef input fill:#eaf2f8,stroke:#477b9e,color:#19364a,stroke-width:1px;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026,stroke-width:1px;
@@ -146,7 +147,7 @@ flowchart TB
     classDef gate fill:#fff2d9,stroke:#b9862b,color:#593c0c,stroke-width:1.5px;
     classDef stop fill:#fce8e6,stroke:#b3261e,color:#5f1410,stroke-width:1px;
     class START,SCREEN,FILTER,EXPAND,CORE,TEXT,CONTRACT,PORT,SIZE,EXEC,MON input;
-    class FIN,MAC,MICRO model;
+    class FIN_BASE,FIN_CHAL,MAC_BASE,MAC_CHAL,MICRO_BASE,MICRO_CHAL model;
     class NEWS news;
     class G1,G2,G3,G4 gate;
     class BLOCK,REJECT,NOTRADE stop;
@@ -155,7 +156,7 @@ flowchart TB
 ### 1B. Post-filter data collection and feature assembly
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 26, "wrappingWidth": 175, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     U["G1-passed, versioned universe<br/>Plus sleeve, decision cutoff and coverage tier"] --> MANIFEST["Create data-request manifest<br/>Required sources, frequency, horizon and freshness"]
     MANIFEST --> FIN["Financial / corporate<br/>Prices, returns, fundamentals, estimates, actions"]
@@ -174,7 +175,7 @@ flowchart TB
     NLP --> Z["Publish Z_news vector<br/>Version · availability time · confidence · coverage"]
     CORE --> BASE["Baseline forecasts use X_core"]
     CORE --> CHAL["Challengers use X_core + Z_news"]
-    Z -. "Added to challenger only" .-> CHAL
+    Z -.-> CHAL
     classDef data fill:#eaf2f8,stroke:#477b9e,color:#19364a;
     classDef model fill:#edf7ed,stroke:#54845e,color:#1d4026;
     classDef news fill:#eee9fb,stroke:#7762a8,color:#30244f;
@@ -193,7 +194,7 @@ The detailed statistical protocol is in Stage 2E. This diagram shows the decisio
 model family, target, horizon and sleeve.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 26, "wrappingWidth": 170, "diagramPadding": 16, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     INPUT["Same universe, core data, target, horizon<br/>and chronological test observations"] --> BASE["Baseline<br/>Original core features; no Z_news"]
     INPUT --> CHAL["Challenger<br/>Same core features + versioned Z_news"]
@@ -286,7 +287,7 @@ the universe decision. Stage 0 is not the full research-data download. Detailed 
 and news data are expanded only after Stage 1 has frozen the admitted universe.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A([Run configuration and decision cutoff]) --> B["Load candidate company/security list<br/>Market scope, sleeve and calendar"]
     B --> C["Collect screening-level information<br/>Identifiers and listing status · basic financial condition<br/>Corporate descriptors · interday/intraday history and coverage"]
@@ -359,7 +360,7 @@ Stage 0 screening dataset and fields available at the formation cutoff. Historic
 later-delisted companies to avoid survivorship bias.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A([Formation date and market scope])
     B["Build point-in-time candidates;<br/>include later-delisted firms in historical tests"]
@@ -534,7 +535,7 @@ calibrated, combined and passed into risk calculations. The feature sets differ 
 contract does not.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     CORE["Post-filter core feature set X_core"] --> F0["Financial baseline<br/>X_core only"]
     CORE --> M0["Macro baseline<br/>X_core only"]
@@ -542,7 +543,7 @@ flowchart TB
     CORE --> F1["Financial challenger<br/>X_core + Z_news"]
     CORE --> M1["Macro challenger<br/>X_core + Z_news"]
     CORE --> U1["Firm/microstructure challenger<br/>X_core + Z_news"]
-    NEWS["Stage 2D output<br/>validated Z_news + coverage flags"] -. "Only added to challengers" .-> F1
+    NEWS["Stage 2D output<br/>validated Z_news + coverage flags"] -.-> F1
     NEWS -.-> M1
     NEWS -.-> U1
     F0 --> CONTRACT["Common forecast contract"]
@@ -602,7 +603,7 @@ as-of $Z^{news}$. Keep the target, fold boundaries and tuning budget aligned; ev
 distress endpoints separately where relevant. Stage 2E defines the shared paired protocol.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Point-in-time prices, returns,<br/>fundamentals and benchmark data"] --> B[Create leakage-safe features and labels]
     B --> C[Fit simple benchmarks first]
@@ -670,7 +671,7 @@ as-of news aggregates by macro topic, country, sector or exposed firm. Do not re
 official macro releases or causal shocks.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Point-in-time macro releases,<br/>market variables and consensus"] --> B["Standardise series and retain<br/>historical release vintages"]
     B --> C["Estimate macroeconomic states<br/>with dynamic factor models"]
@@ -739,7 +740,7 @@ availability/processing-latency cut-offs; a feature generated after the decision
 even if its article publication time is earlier.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Point-in-time company, peer,<br/>market and trading data"] --> B{Which sleeve is running?}
     B -->|Interday| C["Build firm/market panel:<br/>demand, costs, margins, competition"]
@@ -796,7 +797,7 @@ conditions and anticipated outcomes. Preserve timing and provenance, and test pr
 sample.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Timestamped news, filings, transcripts<br/>and exchange announcements"] --> B["Validate source, publication and processing times;<br/>record NLP/LLM, prompt and schema versions"]
     B --> C{Point-in-time and source checks pass?}
@@ -904,7 +905,7 @@ approval before promotion. Do not count both copies in the ensemble unless that 
 registered and justified.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Versioned baseline and news-challenger forecasts<br/>with matched realised outcomes"] --> B["Build chronological walk-forward folds<br/>and purge overlapping labels / embargo"]
     B --> C["Pair by family, target, horizon and test observation<br/>Record sample coverage and missingness policy"]
@@ -992,7 +993,7 @@ The optimiser uses only risk estimates that passed their own checks. Liquidity a
 not relaxed merely to produce a feasible solution.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Eligible forecasts, current holdings,<br/>positions and transaction-cost estimates"]
     B["Estimate covariance using shrinkage,<br/>factor and dynamic models"]
@@ -1093,7 +1094,7 @@ Optimisation determines relative weights; this stage determines permitted total 
 each proposed trade should be submitted.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Target weights, current positions<br/>and portfolio net asset value"] --> B["Estimate uncertainty-adjusted<br/>fractional Kelly scale"]
     B --> C["Apply target-volatility, policy<br/>and margin limits"]
@@ -1199,7 +1200,7 @@ Execution uses approved order requests only. Hard limits are independent of fore
 monitoring models.
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A[Approved order requests from Stage 5] --> B["Refresh market data; validate<br/>security, venue and position"]
     B --> C{Pre-trade controls and kill switch permit order?}
@@ -1249,7 +1250,7 @@ response, not automatic model promotion.
 ### Monitoring and controlled learning
 
 ```mermaid
-%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "wrappingWidth": 180, "diagramPadding": 18, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"theme": "base", "flowchart": {"nodeSpacing": 22, "rankSpacing": 28, "curve": "linear"}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TB
     A["Run records, forecasts, realised returns,<br/>fills, costs and positions"] --> B["Calculate P&L attribution, calibration,<br/>feature drift, risk backtests and execution error"]
     B --> C[Generate per-security and per-sleeve plots]
