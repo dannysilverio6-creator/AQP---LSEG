@@ -1,8 +1,8 @@
 # Part 02 — Contracts, configuration and the gate result
 
-**Goal:** agree on shared definitions *before* any model exists. These are the words every stage uses (`PASS`, `BLOCKED`, `NO-TRADE`, reason codes, the quantile grid), the place every limit lives (YAML), the check that refuses incomplete configuration, and the shape every gate returns.
+**Goal:** agree on shared definitions *before* any model exists: the words every stage uses (`PASS`, `BLOCKED`, `NO-TRADE`, reason codes, the quantile grid), the place every limit lives (YAML), the check that refuses incomplete or dangerous configuration, and the shape every gate returns.
 
-**Design:** §2 (principles, gates, run status), §5 (common forecast schema), §16 (operating contract).
+**Design:** "Design Principles and Gates" in the overall design (G1–G7, run status), Stage 2.3 (common forecast contract), the operating contract (document 08). **Overview:** §2 (naming), §5 (gates, reason codes, run status), §8 (configuration).
 
 Why first? Stages built by different people, or by you at different times, can only be combined if they agree on these shapes. If each model invented its own idea of a "forecast" or a "failure", combining them later would mean rewriting them.
 
@@ -16,13 +16,29 @@ flowchart LR
     S -. never .-> SAFE
 ```
 
-`contracts` and `config` are the bottom layer. They import nothing else from `aqp_python`, so everything else can depend on them without circular imports. Part 11 enforces this automatically.
+`contracts` and `config` are the bottom layer. They import nothing else from `aqp_python`, so everything else can depend on them without circular imports. Part 13 enforces this automatically.
+
+## What you will build in this part
+
+| Section | File | Components |
+|---|---|---|
+| 2.1 | `contracts/run_status.py` | 2 |
+| 2.2 | `contracts/reason_codes.py` | 4 |
+| 2.3 | `contracts/quantile_grid.py` | 2 |
+| 2.4 | `contracts/data_schemas.py` (first two components) | 2 of 3 |
+| 2.5 | `contracts/order_schema.py` | 1 |
+| 2.6 | fourteen YAML files in `configs\` | 21 |
+| 2.7 | `config/config_loader.py` | 2 |
+| 2.8 | `config/config_validation.py` | 4 |
+| 2.9 | `gates/gate_result.py` | 2 |
+| 2.10 | `cli.py` | 2 |
+| 2.11 | five test files | |
 
 ---
 
 ## 2.1 Run status vs trade decision
 
-**File:** `src/aqp_python/contracts/run_status.py`
+**File:** `src/aqp_python/contracts/run_status.py` — component 1 of 2: the two vocabularies
 
 ```python
 """Run status (is the pipeline healthy?) and trade decision (what to do?) are different things."""
@@ -40,8 +56,18 @@ class TradeDecision(StrEnum):
     REDUCE = "REDUCE"
     HOLD = "HOLD"
     NO_TRADE = "NO-TRADE"
+```
 
+**What it does.** Defines two separate vocabularies:
 
+- **`RunStatus`** answers *is the pipeline healthy?* `DEGRADED` means an approved fallback is active and recorded (in this build: news features unavailable, baseline arms only). `BLOCKED` means a critical check failed and no new risk may be taken.
+- **`TradeDecision`** answers *what should we do with this security?*
+
+**Why they must never be mixed.** A run can be `PASS` and still decide `NO-TRADE` everywhere: every check worked, and no model earned the right to trade. That is a healthy outcome, not a failure. `StrEnum` (Python 3.11+) members are also strings, so `RunStatus.PASS == "PASS"` is `True` and they serialise to JSON without special handling.
+
+**File:** `src/aqp_python/contracts/run_status.py` — component 2 of 2: worst_status: the run's terminal status
+
+```python
 _SEVERITY = {RunStatus.PASS: 0, RunStatus.DEGRADED: 1, RunStatus.BLOCKED: 2}
 
 
@@ -52,18 +78,27 @@ def worst_status(statuses: list[RunStatus]) -> RunStatus:
     return max(statuses, key=_SEVERITY.__getitem__)
 ```
 
-These two vocabularies must never be mixed:
+**What it does.** The run's terminal status is the most severe status of any stage. **Why:** the overview §5 convention: `BLOCKED` over `DEGRADED` over `PASS`, so one blocked stage can never be averaged away.
 
-- **`RunStatus`** answers *is the pipeline healthy?* `DEGRADED` means an approved fallback is active and recorded. `BLOCKED` means a critical check failed and no new risk may be taken.
-- **`TradeDecision`** answers *what should we do with this security?*
+```python
+from aqp_python.contracts.run_status import RunStatus, TradeDecision, worst_status
 
-A run can be `PASS` and still decide `NO-TRADE` everywhere: every check worked, and no model earned the right to trade. That is a healthy outcome, not a failure. `worst_status` gives the run's terminal status: the most severe status of any stage (design §16, and the repository convention in overview §5).
+print(worst_status([RunStatus.PASS, RunStatus.DEGRADED, RunStatus.PASS]))
+print(worst_status([]))
+print(TradeDecision.NO_TRADE, TradeDecision.NO_TRADE == "NO-TRADE")
+```
 
-`StrEnum` (Python 3.11+) members are also strings, so `RunStatus.PASS == "PASS"` is `True` and they serialise to JSON without special handling.
+```text
+DEGRADED
+PASS
+NO-TRADE True
+```
 
 ## 2.2 Reason codes
 
-**File:** `src/aqp_python/contracts/reason_codes.py`
+Design: *"Every failure receives a machine-readable reason code."* The file is long, so it is split into four components by stage. Type them in order; the second, third and fourth continue the class body (note the indentation).
+
+**File:** `src/aqp_python/contracts/reason_codes.py` — component 1 of 4: run, data-integrity and universe codes
 
 ```python
 """Machine-readable reason codes. Every failure, exclusion and decision gets one."""
@@ -75,6 +110,7 @@ class ReasonCode(StrEnum):
     CONFIG_INVALID = "CONFIG_INVALID"
     STAGE_EXCEPTION = "STAGE_EXCEPTION"
     UPSTREAM_BLOCKED = "UPSTREAM_BLOCKED"
+    FALLBACK_ACTIVE = "FALLBACK_ACTIVE"
     # G2 data integrity
     DATA_SCHEMA = "DATA_SCHEMA"
     DATA_TIMEZONE = "DATA_TIMEZONE"
@@ -91,13 +127,38 @@ class ReasonCode(StrEnum):
     NOT_LISTED = "NOT_LISTED"
     BELOW_THRESHOLD = "BELOW_THRESHOLD"
     CAPACITY = "CAPACITY"
-    # Mandatory exits
+    # Mandatory exits (design codes)
     EXIT_DIST = "EXIT-DIST"
     EXIT_DLST = "EXIT-DLST"
     EXIT_SUSP = "EXIT-SUSP"
     EXIT_TKO = "EXIT-TKO"
     EXIT_LIQ = "EXIT-LIQ"
-    # Forecasting / G3
+```
+
+**What it does.** Run-level codes, the G2 data-integrity codes, and the universe codes. The design's own codes are kept **exactly** (`DIST`, `LIQ`, `HIST`, `DATA`, `EXIT-DIST`, `EXIT-DLST`, `EXIT-SUSP`, `EXIT-TKO`, `EXIT-LIQ`); the Python names use underscores because a hyphen is not allowed in an identifier, while the *values* keep the hyphen.
+
+**File:** `src/aqp_python/contracts/reason_codes.py` — component 2 of 4: data-request and news-feature codes (Stages 2 and 2D)
+
+```python
+    # Stage 2 data expansion
+    DATA_REQUEST_INVALID = "DATA_REQUEST_INVALID"     # no G1 universe behind the request
+    SOURCE_NOT_AVAILABLE = "SOURCE_NOT_AVAILABLE"     # requested source/tier the provider cannot supply
+    # Stage 2D news features
+    NEWS_UNAVAILABLE = "NEWS_UNAVAILABLE"
+    NEWS_NOT_YET_AVAILABLE = "NEWS_NOT_YET_AVAILABLE"  # processed after the decision cut-off
+    NEWS_TIMESTAMP_INVALID = "NEWS_TIMESTAMP_INVALID"
+    NEWS_DUPLICATE = "NEWS_DUPLICATE"
+    NEWS_UNLINKED = "NEWS_UNLINKED"
+    NEWS_OUT_OF_SCOPE = "NEWS_OUT_OF_SCOPE"
+    NEWS_EXTRACTION_INVALID = "NEWS_EXTRACTION_INVALID"
+    NEWS_COVERAGE_GAP = "NEWS_COVERAGE_GAP"
+```
+
+**What it does.** Codes for the filter-first data request (Stage 2) and for the news engine (Stage 2D). **Why so many news codes:** design 2D says a story that fails a timing, entity, schema or evidence check is *marked*, not silently dropped. Each way to fail gets its own code, so the story log in every run says exactly why a story did not count.
+
+**File:** `src/aqp_python/contracts/reason_codes.py` — component 3 of 4: forecasting, G3 and paired-experiment codes
+
+```python
     FORECAST_INVALID = "FORECAST_INVALID"
     QUANTILE_CROSSING = "QUANTILE_CROSSING"
     MODEL_FIT_FAILED = "MODEL_FIT_FAILED"
@@ -107,6 +168,20 @@ class ReasonCode(StrEnum):
     MODEL_NO_NET_VALUE = "MODEL_NO_NET_VALUE"
     MODEL_OVERFIT_RISK = "MODEL_OVERFIT_RISK"
     NO_ELIGIBLE_MODEL = "NO_ELIGIBLE_MODEL"
+    EXPERIMENT_NOT_REGISTERED = "EXPERIMENT_NOT_REGISTERED"
+    ARM_PARITY_BROKEN = "ARM_PARITY_BROKEN"
+    NEWS_COVERAGE_LOW = "NEWS_COVERAGE_LOW"
+    NEWS_NO_INCREMENTAL_VALUE = "NEWS_NO_INCREMENTAL_VALUE"
+    NEWS_ABLATION_FAILED = "NEWS_ABLATION_FAILED"
+    SHADOW_CANDIDATE = "SHADOW_CANDIDATE"             # passed every test; awaits shadow + G7
+    APPROVED_ARM_INELIGIBLE = "APPROVED_ARM_INELIGIBLE"
+```
+
+**What it does.** Forecasting and G3 codes, including the paired-experiment outcomes. `SHADOW_CANDIDATE` is unusual: it is not a failure. It records that a news challenger passed every test and must now go through shadow evaluation and G7 before it may trade.
+
+**File:** `src/aqp_python/contracts/reason_codes.py` — component 4 of 4: portfolio, sizing, safety and execution codes
+
+```python
     # Portfolio / G4
     OPT_INFEASIBLE = "OPT_INFEASIBLE"
     OPT_RELAXED = "OPT_RELAXED"
@@ -134,11 +209,13 @@ class ReasonCode(StrEnum):
     PAPER_OUT_OF_ORDER = "PAPER_OUT_OF_ORDER"
 ```
 
-Design §2: *"Every failure receives a machine-readable reason code."* The design's own codes are kept exactly (`DIST`, `LIQ`, `HIST`, `DATA`, `EXIT-DIST`, `EXIT-DLST`, `EXIT-SUSP`, `EXIT-TKO`, `EXIT-LIQ`); the rest are project codes for the other gates. Codes are stable identifiers. Explanations go in the gate result's `detail`, never in the code. Add a code only through the decision log (Part 12), because downstream reports and monitoring match on these strings.
+**What it does.** The remaining codes for portfolio construction (G4), sizing (G5, G6), safety and execution.
+
+**Why codes are stable identifiers.** Downstream reports, monitoring and tests match on these strings. Explanations go in a gate result's `detail`, never in the code. Add a code only through the decision log (Part 14).
 
 ## 2.3 The shared quantile grid
 
-**File:** `src/aqp_python/contracts/quantile_grid.py`
+**File:** `src/aqp_python/contracts/quantile_grid.py` — component 1 of 2: the grid and its column names
 
 ```python
 """The one quantile grid every forecast model must use."""
@@ -151,8 +228,15 @@ QUANTILE_GRID: tuple[float, ...] = (
 QUANTILE_COLUMNS: tuple[str, ...] = tuple(f"q{q:.3f}" for q in QUANTILE_GRID)
 MEDIAN_COLUMN = "q0.500"
 LOWER_90, UPPER_90 = "q0.050", "q0.950"
+```
 
+**What it does.** Design 2.3: every forecast-producing model, in every experiment arm, emits the same 11 quantiles 𝒯 = {0.01, 0.025, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.975, 0.99}. Column names are *generated* from the grid, so a typo cannot create a twelfth quantile.
 
+**Why a shared grid.** Because every model reports the same quantiles, the no-news baseline and its news challenger can be scored, compared observation by observation, averaged and handed to the portfolio stage without any conversion.
+
+**File:** `src/aqp_python/contracts/quantile_grid.py` — component 2 of 2: check_quantile_values
+
+```python
 def check_quantile_values(values: Sequence[float]) -> None:
     """Raise ValueError if values do not match the grid or are not ordered."""
     if len(values) != len(QUANTILE_GRID):
@@ -163,16 +247,31 @@ def check_quantile_values(values: Sequence[float]) -> None:
         raise ValueError("quantile crossing: values must be non-decreasing")
 ```
 
-Design §5: every model emits the same 11 quantiles, `𝒯 = {0.01, 0.025, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.975, 0.99}`. Because the grid is shared, forecasts from different models can be compared, averaged and scored without conversion. The column names (`q0.010` … `q0.990`) are generated from the grid, so a typo cannot create a 12th quantile. `check_quantile_values` enforces the two non-negotiable properties: finite values and no **quantile crossing** (the 5% quantile can never exceed the 10% quantile).
+**What it does.** Enforces the two non-negotiable properties of a predictive distribution: finite values and **no quantile crossing** (the 5% quantile can never exceed the 10% quantile).
+
+```python
+from aqp_python.contracts.quantile_grid import QUANTILE_COLUMNS, check_quantile_values
+
+print(QUANTILE_COLUMNS)
+try:
+    check_quantile_values([0, 1, 2, 4, 3, 5, 6, 7, 8, 9, 10])
+except ValueError as error:
+    print("rejected:", error)
+```
+
+```text
+('q0.010', 'q0.025', 'q0.050', 'q0.100', 'q0.250', 'q0.500', 'q0.750', 'q0.900', 'q0.950', 'q0.975', 'q0.990')
+rejected: quantile crossing: values must be non-decreasing
+```
 
 ## 2.4 Table contracts
 
-Start `data_schemas.py` with the column lists. The hand-off dataclasses (`MarketData`, `UniverseSelection`) are added to the bottom of this file in Parts 04 and 05.
+`data_schemas.py` holds the column lists of every raw table. Its third component, the Stage 2 hand-off `ResearchData`, is added in Part 06.
 
-**File:** `src/aqp_python/contracts/data_schemas.py` — top of file, `require_columns`
+**File:** `src/aqp_python/contracts/data_schemas.py` — component 1 of 3: column contracts for every raw table
 
 ```python
-"""Column contracts and hand-off objects passed between stages."""
+"""Column contracts for raw tables, and the Stage 2 research hand-off."""
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -181,21 +280,35 @@ import pandas as pd
 # One row per security per trading day. date = valid time; availability_ts = when usable.
 PRICE_COLUMNS = ("security_id", "date", "availability_ts", "close", "volume", "currency", "source")
 BENCHMARK_COLUMNS = ("date", "availability_ts", "benchmark_return")
-REFERENCE_COLUMNS = (
-    "security_id", "name", "sector", "listing_date", "delisting_date", "currency",
-    "distress_probability", "quality_score", "revenue_share_au", "revenue_share_us",
-    "revenue_share_cn", "availability_ts",
+# Screening may read only these reference fields (configs/screening_request.yaml).
+REFERENCE_SCREENING_COLUMNS = (
+    "security_id", "name", "short_name", "sector", "listing_date", "delisting_date", "currency",
+    "distress_probability", "quality_score", "availability_ts",
 )
+# Company exposures are research data: requested only after G1 (configs/detailed_data_request.yaml).
+REFERENCE_EXPOSURE_COLUMNS = ("revenue_share_au", "revenue_share_us", "revenue_share_cn")
+REFERENCE_COLUMNS = REFERENCE_SCREENING_COLUMNS[:-1] + REFERENCE_EXPOSURE_COLUMNS + ("availability_ts",)
 CORPORATE_ACTION_COLUMNS = ("security_id", "ex_date", "split_ratio", "availability_ts")
+# The qualitative corpus: raw text with publication and first-seen times. Never a model input as-is.
+NEWS_COLUMNS = ("story_id", "source", "published_ts", "first_seen_ts", "provider_tags", "headline", "body")
+# Periods in which the news feed was actually monitoring each security.
+NEWS_COVERAGE_COLUMNS = ("security_id", "start_date", "end_date")
+```
 
+**What it does.** Names the columns of the six raw tables the synthetic provider supplies.
 
+**Why the reference columns are split in two.** `REFERENCE_SCREENING_COLUMNS` are the fields a universe decision needs (identity, listing dates, sector, distress, quality). `REFERENCE_EXPOSURE_COLUMNS` (revenue shares by economy) are *research* data from the Company Reference and Exposure Dataset, which design 2.1 says is assembled only for admitted names. Writing the split into the contract is how "filter before deep retrieval" starts: Stage 00 will physically read only the screening columns.
+
+Note the two timestamps on price rows: `date` is the **valid time** (the period a fact describes) and `availability_ts` is when the system could first have used it. News rows have two different times: `published_ts` (what the source says) and `first_seen_ts` (when our feed received it). Part 09 adds a third, our own processing time.
+
+**File:** `src/aqp_python/contracts/data_schemas.py` — component 2 of 3: require_columns
+
+```python
 def require_columns(frame: pd.DataFrame, columns: Iterable[str], name: str) -> None:
     missing = sorted(set(columns) - set(frame.columns))
     if missing:
         raise ValueError(f"{name} is missing columns: {missing}")
 ```
-
-Note the two timestamps on every row. `date` is the **valid time** (the period a fact describes); `availability_ts` is the time the system could first have used it. Point-in-time correctness (Part 03) depends entirely on that second column.
 
 ## 2.5 Order requests
 
@@ -238,13 +351,13 @@ class OrderRequest:
         return record
 ```
 
-Design §12 to §13: an order request is the *only* object that travels from sizing to execution, and it is created only after G5 and G6 pass (Part 09). `frozen=True` makes it immutable, so nothing downstream can quietly change a quantity after the safety checks have approved it.
+**What it does.** An order request is the *only* object that travels from sizing to execution, and it is created only after G5 and G6 pass (Part 11). **Why frozen:** `frozen=True` makes it immutable, so nothing downstream can quietly change a quantity after the safety checks have approved it.
 
 ## 2.6 All the configuration, in one place
 
-Design §2, *"thresholds are provisional"*, and the overview's rule *"all limits, thresholds and approvals live here, never in code"*. Create all eight files now, even though most keys are used later. The validator in 2.7 checks every section at once, so a run cannot start with a missing limit.
+Overview §8: *"all limits, thresholds, experiments and approvals live here, never in code."* Fill in all fourteen placeholders now, even though most keys are used later. The validator in 2.8 checks every section at once, so a run cannot start with a missing limit.
 
-**File:** `configs/pipeline.yaml`
+**File:** `configs/pipeline.yaml` — component 1 of 2: run settings
 
 ```yaml
 # Top-level run configuration. Every limit and threshold lives in YAML, never in code.
@@ -254,25 +367,38 @@ pipeline:
   output_root: outputs
   data_dir: data/samples
   universe_dir: data/universes
+  request_dir: data/data_requests
   state_dir: outputs/state
   timezone: Australia/Sydney
   decision_time_local: "17:00"   # after the ASX close and data publication lag
   random_seed: 20261018
+```
 
+`decision_time_local: "17:00"` with `timezone: Australia/Sydney` means a decision for 16 October 2026 is taken at 17:00 Sydney time: after the ASX close and after the 16:30 publication time of the synthetic close prices, so that day's close is usable and nothing later is. `request_dir` is where frozen Stage 2 data requests are kept (Part 06).
+
+**File:** `configs/pipeline.yaml` — component 2 of 2: included files and sleeves
+
+```yaml
 includes:
   gates: gates.yaml
+  screening_request: screening_request.yaml
   universe: universe_rules.yaml
+  coverage_tiers: coverage_tiers.yaml
+  detailed_data_request: detailed_data_request.yaml
+  news_features: news_features.yaml
+  experiments: experiments.yaml
   forecast_models: forecast_models.yaml
   validation: validation.yaml
   risk_limits: risk_limits.yaml
   monitoring: monitoring_alerts.yaml
+  fallbacks: fallbacks.yaml
   model_lifecycle: model_lifecycle.yaml
 
 sleeves:
   asx_interday: sleeves/sleeve_asx_interday.yaml
 ```
 
-`decision_time_local: "17:00"` with `timezone: Australia/Sydney` means a decision for 16 October 2026 is taken at 17:00 Sydney time. That is after the ASX close and after the 16:30 publication time of the synthetic close prices, so that day's close is usable and nothing later is. `includes` lists the other files; `sleeves` maps a sleeve name to its file, so adding the US interday sleeve later means adding one line here and one file.
+`includes` lists the other files and the key each one is loaded under. `sleeves` maps a sleeve name to its file, so adding the US interday sleeve later means one line here and one file.
 
 **File:** `configs/gates.yaml`
 
@@ -301,7 +427,21 @@ g6_trade_eligibility:
   max_data_age_days: 1
 ```
 
-**File:** `configs/universe_rules.yaml`
+Provisional thresholds for G2–G6. They are research settings, not universal standards, and must be calibrated and approved per sleeve.
+
+**File:** `configs/screening_request.yaml`
+
+```yaml
+# Stage 00 asks only for what the universe decision needs (design Stage 0).
+files: [prices.csv, benchmark.csv, reference.csv, corporate_actions.csv, news_coverage.csv]
+reference_fields: [security_id, name, short_name, sector, listing_date, delisting_date, currency,
+                   distress_probability, quality_score, availability_ts]
+# news_coverage.csv is metadata (does a source exist?), never the text itself.
+```
+
+**The filter-first rule as data.** Stage 00 may read these files and these reference fields, nothing else. `news.csv` (the text) is absent; `news_coverage.csv` is present because design Stage 0 allows recording *whether* a source exists.
+
+**File:** `configs/universe_rules.yaml` — component 1 of 2: formation date, hard filters, threshold and capacity
 
 ```yaml
 formation_date: "2025-06-30"     # universe is formed once per version, at this date
@@ -314,6 +454,11 @@ max_missing_ratio: 0.02          # DATA: share of expected sessions with no pric
 liquidity_lookback_days: 60
 admission_threshold: 40.0        # composite score 0-100
 capacity: 30                     # research capacity per sleeve
+```
+
+**File:** `configs/universe_rules.yaml` — component 2 of 2: scoring recipe, strategy rules and mandatory removals
+
+```yaml
 category_weights:                # w_k, must sum to 1
   liquidity: 0.40
   stability: 0.30
@@ -338,14 +483,100 @@ mandatory_removal:
   liquidity_floor_ratio: 0.50    # EXIT-LIQ if median dollar volume < ratio x formation floor
 ```
 
-This is the design §4 scoring recipe written as data. `category_metrics` gives each metric a direction `d_j` (+1 if higher is better, −1 if lower is better) and a weight `ω_jk`; `category_weights` gives `w_k`. Part 05 turns it into `S_i = 100 Σ_k w_k Σ_j ω_jk Φ(d_j z_ij)`.
+This is design Stage 1's scoring recipe written as data. `category_metrics` gives each metric a direction `d_j` (+1 if higher is better, −1 if lower is better) and a weight `ω_jk`; `category_weights` gives `w_k`. Part 05 turns it into `S_i = 100 Σ_k w_k Σ_j ω_jk Φ(d_j z_ij)`.
+
+**File:** `configs/coverage_tiers.yaml`
+
+```yaml
+# Data-depth budget (design Stage 1 coverage tiers). Ranked by formation liquidity within the
+# admitted universe. Tiers govern the Stage 2 data request; they never change membership.
+tiers:
+  T1: {max_rank: 8, sources: [daily_prices, trades_quotes]}
+  T2: {max_rank: 20, sources: [daily_prices, minute_bars]}
+  T3: {max_rank: null, sources: [daily_prices]}
+```
+
+Design Stage 1's data-coverage tiers: the most liquid admitted names (T1) would get trades and quotes, the next (T2) one-minute bars, the rest (T3) daily data. The sizes are budget examples. A tier decides how deeply a name is researched, never whether it is a member.
+
+**File:** `configs/detailed_data_request.yaml`
+
+```yaml
+# Stage 2 asks for detailed data ONLY for the G1-admitted universe version (design 2.1).
+files: [prices.csv, benchmark.csv, reference.csv, corporate_actions.csv, news.csv, news_coverage.csv]
+reference_fields: [security_id, name, short_name, sector, listing_date, delisting_date, currency,
+                   distress_probability, quality_score, revenue_share_au, revenue_share_us,
+                   revenue_share_cn, availability_ts]
+history_start: "2022-01-03"
+```
+
+What Stage 2 may ask for, and only for admitted names: now the text corpus and the exposure fields are allowed.
+
+**File:** `configs/news_features.yaml` — component 1 of 2: versions, timing and the feature recipe
+
+```yaml
+# Stage 2D: text -> versioned quantitative covariates Z_news. Never a trade signal on its own.
+extractor: lexicon               # lexicon (built in) | llm (needs connectors/llm, Part 14)
+prompt_version: lexicon-v1       # frozen during an evaluation period
+extraction_schema_version: event-v1
+processing_latency_minutes: 5    # our own processing time after first-seen
+duplicate_window_hours: 24       # same entity + event type within this window = one story
+novelty_window_days: 10          # an event type already seen for this entity within N days is not new
+decay_days: 5.0                  # exp(-age / decay_days)
+max_event_age_days: 20
+count_window_days: 5
+require_coverage_days: 5         # feed must have covered the name on each of the last N sessions
+source_credibility: {wire_a: 1.0, wire_b: 0.8}
+features: [news_sentiment_decay, news_intensity_decay, news_event_count_5d]
+```
+
+**File:** `configs/news_features.yaml` — component 2 of 2: the missingness rule
+
+```yaml
+# Missing news is NEVER zero. Uncovered (security, date) rows are NaN and the challenger
+# arm is unavailable there (experiments.yaml -> missingness_policy).
+```
+
+The recipe for Z_news. Every value that changes the features (extractor, prompt version, schema version, decay, windows) is part of the published feature version (Part 09), so a forecast can always say which news recipe it used.
+
+**File:** `configs/experiments.yaml` — component 1 of 2: registered baseline/challenger pairs
+
+```yaml
+# Register each pair BEFORE looking at test results. Arms differ only by news_features.
+experiments:
+  financial__xret__h5__asx_interday:
+    family: financial
+    model: ridge_location_scale
+    target: benchmark_excess_return
+    horizon_days: 5
+    sleeve: asx_interday
+    core_features: [mom_252_21, rev_5, vol_20, quality_score]
+    news_features: [news_sentiment_decay, news_intensity_decay, news_event_count_5d]
+    missingness_policy: matched_only     # challenger evaluated only where Z_news exists
+    approved_arm: BASELINE               # changes only through G7 (Part 14), never automatically
+```
+
+**The heart of design 2E.** One registered experiment: the ridge model, the excess-return target, a 5-day horizon, the ASX interday sleeve. The two arms share `core_features`; only the challenger adds `news_features`. `approved_arm: BASELINE` means the baseline feeds the portfolio until a G7 review changes this line, which is a reviewed commit, never something the code does by itself.
+
+**File:** `configs/experiments.yaml` — component 2 of 2: incremental-value rules
+
+```yaml
+incremental_value:
+  max_paired_pvalue: 0.10        # one-sided paired DM on matched observations
+  min_news_coverage: 0.80        # share of baseline test observations the challenger also covers
+  bootstrap_block_dates: 4       # moving-block bootstrap of per-date loss differences
+  bootstrap_samples: 500
+  multiple_testing: holm         # across every registered experiment
+  ablation_must_hurt: true       # removing the news block must worsen loss
+```
+
+The pre-registered rules for "does news add value?". They are fixed *before* any result is seen; changing them after looking at results would be choosing the test to fit the answer.
 
 **File:** `configs/forecast_models.yaml`
 
 ```yaml
 # Model registry entries. role: baseline models are references and never trade.
+# Feature lists live with each experiment (experiments.yaml): the arm decides the features.
 horizon_days: 5
-features: [mom_252_21, rev_5, vol_20, quality_score]
 models:
   zero_excess:
     role: baseline
@@ -368,7 +599,7 @@ models:
     params: {alpha: 0.0001, max_train_rows: 4000}
 ```
 
-`role: baseline` models are the yardsticks of design §6 (zero excess return, rolling mean). They are scored, but G3 never gives them weight. `linear_quantile` ships disabled to show that adding or removing a model is a configuration change, not a code change.
+`role: baseline` models are the yardsticks of design 2A ("fit simple benchmarks first"). They are scored but never weighted. Feature lists are not here any more: in v14 the experiment arm decides which features a model sees.
 
 **File:** `configs/validation.yaml`
 
@@ -381,7 +612,7 @@ combination_shrinkage: 0.5        # 0 = pure inverse-loss weights, 1 = equal wei
 long_short_quantile: 0.2          # top/bottom fraction for net-of-cost evaluation
 ```
 
-`embargo_days` must be at least the 5-day horizon (design §10). The validator enforces this.
+`embargo_days` must be at least the 5-day horizon; the validator enforces this.
 
 **File:** `configs/risk_limits.yaml`
 
@@ -395,7 +626,7 @@ max_order_count: 60
 kill_switch_file: KILL_SWITCH      # relative to pipeline.state_dir
 ```
 
-Only the `safety` package reads this file (Part 10). Keeping hard limits in their own file makes it easy to give it a separate approval process, and to show in a review that no model parameter appears in it.
+Only the `safety` package reads this file (Part 12). Keeping hard limits in their own file makes it easy to give it a separate approval process and to show that no model parameter appears in it.
 
 **File:** `configs/monitoring_alerts.yaml`
 
@@ -405,9 +636,33 @@ coverage_band: [0.87, 0.93]      # rolling 90% interval coverage
 coverage_window_dates: 20        # number of recent test dates pooled
 max_drawdown_alert: 0.10
 max_shortfall_bps_alert: 50
+min_news_coverage_alert: 0.80    # share of active names with usable Z_news today
+max_news_drift_alert: 3.0        # |z| of today's mean news sentiment vs its history
 ```
 
-**File:** `configs/sleeves/sleeve_asx_interday.yaml`
+**File:** `configs/fallbacks.yaml`
+
+```yaml
+# Approved, tested fallbacks. Anything not listed here BLOCKS instead of degrading.
+# A fallback can never bypass data integrity, margin, hard limits, kill switches or reconciliation.
+approved:
+  news_features_unavailable:
+    action: baseline_arm_only    # challengers are unavailable; registered baselines continue
+    status: DEGRADED
+    tested_by: tests/integration/test_fallback_behaviour.py
+```
+
+Design: *"If no approved fallback exists, stop the affected run/sleeve."* This build has exactly one approved fallback. Anything not listed blocks.
+
+**File:** `configs/model_lifecycle.yaml`
+
+```yaml
+# G7 promotion policy (design Stage 7). Used by model-lifecycle tooling, never by a trading run.
+min_shadow_sessions: 60
+max_dm_pvalue_vs_champion: 0.05
+```
+
+**File:** `configs/sleeves/sleeve_asx_interday.yaml` — component 1 of 3: identity and costs
 
 ```yaml
 sleeve: asx_interday
@@ -420,6 +675,11 @@ costs:
   commission_bps: 5
   impact_coefficient: 0.10       # eta in the eta*|dw|^1.5 term (per unit of daily vol)
   holding_periods: 4             # expected holding period in forecast horizons; costs are amortised over it
+```
+
+**File:** `configs/sleeves/sleeve_asx_interday.yaml` — component 2 of 3: portfolio constraints and stress scenarios
+
+```yaml
 portfolio:
   long_only: true                # open decision 5: long-only until ASX borrow is confirmed
   risk_aversion: 2.5             # gamma
@@ -438,6 +698,11 @@ stress_scenarios:
   market_crash: {market: -0.20}
   china_slowdown: {revenue_cn: -0.15}
   sector_financials: {sector: Financials, shock: -0.25}
+```
+
+**File:** `configs/sleeves/sleeve_asx_interday.yaml` — component 3 of 3: sizing policy
+
+```yaml
 sizing:
   target_volatility_annual: 0.12
   kelly_fraction: 0.35           # c, provisional range 0.25-0.50
@@ -449,11 +714,11 @@ sizing:
   min_benefit_cost_ratio: 1.5
 ```
 
-Everything that differs between sleeves lives here: costs, portfolio constraints, stress scenarios, leverage policy. `long_only: true` records **open decision 5** (long-only versus long-short, design §15) as a configuration value with a comment instead of a silent assumption. `holding_periods: 4` is explained in Part 09: costs are paid once, but a position is held for several 5-day horizons.
+Everything that differs between sleeves lives in the sleeve file: costs, portfolio constraints, stress scenarios and leverage policy. `long_only: true` records **open decision 5** (long-only versus long-short) as a configuration value with a comment instead of a silent assumption.
 
 ## 2.7 Loading configuration
 
-**File:** `src/aqp_python/config/config_loader.py`
+**File:** `src/aqp_python/config/config_loader.py` — component 1 of 2: load_yaml
 
 ```python
 """Load the pipeline YAML and the files it includes into one mapping."""
@@ -473,8 +738,13 @@ def load_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"Top-level YAML value must be a mapping: {path}")
     return value
+```
 
+**What it does.** Reads one YAML file. **Why it is strict:** `yaml.safe_load` never constructs arbitrary Python objects; a missing file raises immediately (a missing risk policy must never silently become a default); and the top level must be a mapping.
 
+**File:** `src/aqp_python/config/config_loader.py` — component 2 of 2: load_pipeline_config and config_hash
+
+```python
 def load_pipeline_config(path: Path, sleeve: str) -> dict[str, Any]:
     """Return {'pipeline', 'gates', 'universe', ..., 'sleeve'} for one sleeve."""
     path = Path(path)
@@ -495,13 +765,28 @@ def config_hash(config: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 ```
 
-- `yaml.safe_load` never constructs arbitrary Python objects from YAML. Never use `yaml.load` on files.
-- A missing file raises `FileNotFoundError` immediately. A missing risk policy must not silently become a default.
-- `config_hash` turns the merged configuration into canonical JSON (sorted keys) and hashes it. Two runs with the same hash used the same settings; the hash goes into every run manifest.
+**What it does.** Loads `pipeline.yaml`, then every included file under its key, then the chosen sleeve. `config_hash` turns the merged configuration into canonical JSON (sorted keys) and hashes it; two runs with the same hash used the same settings, and the hash goes into every run manifest.
+
+```python
+from pathlib import Path
+
+from aqp_python.config.config_loader import config_hash, load_pipeline_config
+
+config = load_pipeline_config(Path("configs/pipeline.yaml"), "asx_interday")
+print(sorted(config))
+print(config["experiments"]["experiments"]["financial__xret__h5__asx_interday"]["approved_arm"])
+print(config_hash({"a": 1, "b": 2}) == config_hash({"b": 2, "a": 1}))
+```
+
+```text
+['coverage_tiers', 'detailed_data_request', 'experiments', 'fallbacks', 'forecast_models', 'gates', 'model_lifecycle', 'monitoring', 'news_features', 'pipeline', 'risk_limits', 'screening_request', 'sleeve', 'universe', 'validation']
+BASELINE
+True
+```
 
 ## 2.8 Fail-fast validation
 
-**File:** `src/aqp_python/config/config_validation.py`
+**File:** `src/aqp_python/config/config_validation.py` — component 1 of 4: required sections and helper checks
 
 ```python
 """Fail-fast checks: a missing limit must stop the run, never become a default."""
@@ -509,10 +794,12 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 REQUIRED_SECTIONS = (
-    "pipeline", "gates", "universe", "forecast_models", "validation", "risk_limits",
-    "monitoring", "sleeve",
+    "pipeline", "gates", "screening_request", "universe", "coverage_tiers", "detailed_data_request",
+    "news_features", "experiments", "forecast_models", "validation", "risk_limits", "monitoring",
+    "fallbacks", "sleeve",
 )
 ALLOWED_MODES = {"research", "paper"}
+ARMS = {"BASELINE", "NEWS_CHALLENGER"}
 
 
 class ConfigError(ValueError):
@@ -533,36 +820,87 @@ def require_fraction(value: Any, where: str, *, allow_zero: bool = True) -> None
     low_ok = value >= 0 if allow_zero else value > 0
     if not (low_ok and value <= 1):
         raise ConfigError(f"'{where}' must be in {'[0, 1]' if allow_zero else '(0, 1]'}, got {value}")
+```
 
+**What it does.** Lists the fourteen required sections and two helpers: `require_keys` (every key present) and `require_fraction` (a number in [0, 1]).
 
+**File:** `src/aqp_python/config/config_validation.py` — component 2 of 4: validate_config: pipeline, screening and universe
+
+```python
 def validate_config(config: Mapping[str, Any]) -> None:
     require_keys(config, REQUIRED_SECTIONS, "config")
 
     pipeline = config["pipeline"]
-    require_keys(pipeline, ["name", "mode", "output_root", "data_dir", "universe_dir",
+    require_keys(pipeline, ["name", "mode", "output_root", "data_dir", "universe_dir", "request_dir",
                             "state_dir", "timezone", "decision_time_local"], "pipeline")
     if pipeline["mode"] not in ALLOWED_MODES:
         raise ConfigError(f"pipeline.mode must be one of {sorted(ALLOWED_MODES)}")
+
+    screening = config["screening_request"]
+    require_keys(screening, ["files", "reference_fields"], "screening_request")
+    if "news.csv" in screening["files"]:
+        raise ConfigError("screening_request may not read the news corpus: text is collected after G1")
+    if set(screening["reference_fields"]) & {"revenue_share_au", "revenue_share_us", "revenue_share_cn"}:
+        raise ConfigError("screening_request may not read company exposures: they are research data")
 
     universe = config["universe"]
     require_keys(universe, ["formation_date", "version_label", "max_distress_probability",
                             "min_median_dollar_volume", "min_history_days", "admission_threshold",
                             "capacity", "category_weights", "mandatory_removal"], "universe")
-    weights = universe["category_weights"]
-    if abs(sum(weights.values()) - 1.0) > 1e-9:
+    if abs(sum(universe["category_weights"].values()) - 1.0) > 1e-9:
         raise ConfigError("universe.category_weights must sum to 1")
     for category, metrics in universe["category_metrics"].items():
         if abs(sum(weight for _, weight in metrics.values()) - 1.0) > 1e-9:
             raise ConfigError(f"universe.category_metrics.{category} weights must sum to 1")
         if any(direction not in (-1, 1) for direction, _ in metrics.values()):
             raise ConfigError(f"universe.category_metrics.{category} directions must be +1 or -1")
+    require_keys(config["coverage_tiers"], ["tiers"], "coverage_tiers")
+```
+
+**What it does.** Starts `validate_config`. Note the two new v14 checks on `screening_request`: it may not read the news corpus, and it may not read exposure fields. A configuration that would break "filter before deep retrieval" is refused before anything runs.
+
+**File:** `src/aqp_python/config/config_validation.py` — component 3 of 4: validate_config: news features, experiments and models
+
+```python
+    news = config["news_features"]
+    require_keys(news, ["extractor", "prompt_version", "extraction_schema_version", "processing_latency_minutes",
+                        "duplicate_window_hours", "novelty_window_days", "decay_days", "max_event_age_days",
+                        "count_window_days", "require_coverage_days", "source_credibility", "features"],
+                 "news_features")
+    if news["decay_days"] <= 0:
+        raise ConfigError("news_features.decay_days must be positive")
 
     models = config["forecast_models"]
-    require_keys(models, ["horizon_days", "features", "models"], "forecast_models")
+    require_keys(models, ["horizon_days", "models"], "forecast_models")
     roles = {spec.get("role") for spec in models["models"].values() if spec.get("enabled")}
     if "baseline" not in roles:
         raise ConfigError("at least one enabled baseline model is required")
 
+    experiments = config["experiments"]
+    require_keys(experiments, ["experiments", "incremental_value"], "experiments")
+    for experiment_id, spec in experiments["experiments"].items():
+        where = f"experiments.{experiment_id}"
+        require_keys(spec, ["family", "model", "target", "horizon_days", "sleeve", "core_features",
+                            "news_features", "missingness_policy", "approved_arm"], where)
+        if spec["model"] not in models["models"]:
+            raise ConfigError(f"{where}.model '{spec['model']}' is not in forecast_models.yaml")
+        if spec["horizon_days"] != models["horizon_days"]:
+            raise ConfigError(f"{where}.horizon_days must equal forecast_models.horizon_days")
+        if set(spec["core_features"]) & set(spec["news_features"]):
+            raise ConfigError(f"{where}: a feature cannot be both core and news")
+        if not set(spec["news_features"]) <= set(news["features"]):
+            raise ConfigError(f"{where}.news_features must be published by news_features.yaml")
+        if spec["approved_arm"] not in ARMS:
+            raise ConfigError(f"{where}.approved_arm must be one of {sorted(ARMS)}")
+        if spec["missingness_policy"] != "matched_only":
+            raise ConfigError(f"{where}.missingness_policy: only 'matched_only' is approved")
+```
+
+**What it does.** Checks the news recipe and every registered experiment. Read the experiment checks as the design's rules for a clean experiment: the model must exist; the horizon must match; **a feature cannot be both core and news** (otherwise the baseline would contain news); the news features must actually be published by the news engine; the approved arm must be one of the two arms; and the only approved missingness policy is `matched_only`.
+
+**File:** `src/aqp_python/config/config_validation.py` — component 4 of 4: validate_config: validation, limits, fallbacks and sleeve
+
+```python
     validation = config["validation"]
     require_keys(validation, ["min_train_days", "n_folds", "embargo_days", "step_days"], "validation")
     if validation["embargo_days"] < models["horizon_days"]:
@@ -574,6 +912,7 @@ def validate_config(config: Mapping[str, Any]) -> None:
                           "max_order_count", "kill_switch_file"], "risk_limits")
     require_fraction(limits["max_single_name_fraction_nav"], "risk_limits.max_single_name_fraction_nav",
                      allow_zero=False)
+    require_keys(config["fallbacks"], ["approved"], "fallbacks")
 
     sleeve = config["sleeve"]
     require_keys(sleeve, ["sleeve", "market", "currency", "initial_nav", "costs",
@@ -592,19 +931,35 @@ def validate_config(config: Mapping[str, Any]) -> None:
             raise ConfigError(f"'{never}' is a liquidity limit and may never be relaxed")
 ```
 
-Read `validate_config` as a list of things that would be dangerous to discover halfway through a run:
+**What it does.** The remaining checks: embargo covers the horizon, hard limits are present, fallbacks are listed, the Kelly fraction is in the design's provisional 0.25–0.50 range, and **liquidity limits can never appear in the relaxation list** (design Stages 3–4: "never relax liquidity or tail-risk limits").
 
-- every section and key exists (`require_keys`);
-- `mode` is `research` or `paper`. This build refuses `live`, because a config value is never an authorisation (design §17, phase 8);
-- the scoring weights sum to 1 and directions are ±1;
-- at least one enabled baseline exists, so G3 always has a yardstick;
-- the embargo covers the horizon;
-- the Kelly fraction is inside the design's provisional 0.25–0.50 range;
-- **liquidity limits can never appear in the relaxation list** (design §11: *"never relax liquidity or tail-risk limits"*).
+```python
+import copy
+from pathlib import Path
+
+from aqp_python.config.config_loader import load_pipeline_config
+from aqp_python.config.config_validation import ConfigError, validate_config
+
+config = load_pipeline_config(Path("configs/pipeline.yaml"), "asx_interday")
+validate_config(config)
+print("shipped configuration: valid")
+bad = copy.deepcopy(config)
+experiment = bad["experiments"]["experiments"]["financial__xret__h5__asx_interday"]
+experiment["core_features"].append("news_sentiment_decay")      # smuggle news into the baseline
+try:
+    validate_config(bad)
+except ConfigError as error:
+    print("refused:", error)
+```
+
+```text
+shipped configuration: valid
+refused: experiments.financial__xret__h5__asx_interday: a feature cannot be both core and news
+```
 
 ## 2.9 The gate result
 
-**File:** `src/aqp_python/gates/gate_result.py`
+**File:** `src/aqp_python/gates/gate_result.py` — component 1 of 2: GateOutcome: the four failure actions
 
 ```python
 """Every gate returns the same small, serialisable result object."""
@@ -617,13 +972,18 @@ class GateOutcome(StrEnum):
     WARN = "WARN"              # recorded, never silently suppressed
     QUARANTINE = "QUARANTINE"  # exclude one subject (e.g. a security) for this run
     BLOCK = "BLOCK"            # stop the affected branch or run
+```
 
+**What it does.** The four outcomes map onto the design's failure actions: `BLOCK` stops a branch or run, `QUARANTINE` excludes one subject for this run, `WARN` is recorded but never suppressed, `PASS` continues.
 
+**File:** `src/aqp_python/gates/gate_result.py` — component 2 of 2: GateResult and any_block
+
+```python
 @dataclass(frozen=True)
 class GateResult:
     gate_id: str                       # "G1" ... "G7"
     outcome: GateOutcome
-    subject: str = "run"               # "run", a security_id, a model name, an order id
+    subject: str = "run"               # "run", a security_id, a model name, an experiment id
     reason_codes: tuple[str, ...] = ()
     detail: str = ""
     evidence: dict = field(default_factory=dict)
@@ -648,13 +1008,29 @@ def any_block(results: list[GateResult]) -> bool:
     return any(result.outcome == GateOutcome.BLOCK for result in results)
 ```
 
-Design §2 defines gates by a pass condition and a failure action. Every gate in this project (G1 to G6 here, G7 in Part 12) returns this one object, so the orchestrator, manifest and report treat them all the same way. The four outcomes map to the design's failure actions: `BLOCK` stops a branch or run, `QUARANTINE` excludes one subject for this run, `WARN` is recorded but never suppressed, and `PASS` continues. `__post_init__` makes it impossible to create a failing result without a reason code.
+**What it does.** Every gate in the project (G1–G7) returns this one object, so the orchestrator, manifest and report treat them the same way. `subject` names what was judged: the run, a security, a model slot such as `ridge_location_scale@NEWS_CHALLENGER`, or an experiment. **Why `__post_init__`:** it makes it impossible to create a failing result without a reason code.
+
+```python
+from aqp_python.gates.gate_result import GateOutcome, GateResult
+
+ok = GateResult("G1", GateOutcome.PASS, "SYN01")
+print(ok.passed, ok.to_dict())
+try:
+    GateResult("G2", GateOutcome.BLOCK, "run")
+except ValueError as error:
+    print("refused:", error)
+```
+
+```text
+True {'gate_id': 'G1', 'outcome': 'PASS', 'subject': 'SYN01', 'reason_codes': [], 'detail': '', 'evidence': {}}
+refused: G2 BLOCK for run needs a reason code
+```
 
 ## 2.10 The command line
 
-Write the whole CLI now. Only `validate-config` works at this point. The other commands import their modules *inside* the `if` branch (a **lazy import**), so the CLI loads even though Stage 00 and the orchestrator do not exist yet.
+Write the whole CLI now. Only `validate-config` works at this point; the other commands import their modules *inside* their `if` branch (a **lazy import**), so the CLI loads even though later stages do not exist yet.
 
-**File:** `src/aqp_python/cli.py`
+**File:** `src/aqp_python/cli.py` — component 1 of 2: imports and the argument parser
 
 ```python
 """Command line: python -m aqp_python.cli <command> ...   (or just `aqp <command>` once installed)."""
@@ -681,7 +1057,9 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--output", type=Path, default=Path("data/samples"))
     sample.add_argument("--seed", type=int, default=7)
     sample.add_argument("--no-signal", action="store_true",
-                        help="remove the planted signal (no model should pass G3 -> NO-TRADE)")
+                        help="remove the planted price signal (no model should pass G3 -> NO-TRADE)")
+    sample.add_argument("--no-news-signal", action="store_true",
+                        help="keep the news but remove its effect on returns (news should add nothing)")
 
     run = sub.add_parser("run", help="run the pipeline for one sleeve and decision date")
     run.add_argument("--config", type=Path, default=Path("configs/pipeline.yaml"))
@@ -689,8 +1067,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--as-of", type=date.fromisoformat, required=True, help="trading date, YYYY-MM-DD")
     run.add_argument("--mode", choices=("research", "paper"), default=None)
     return parser
+```
 
+**What it does.** Defines three commands. `build-sample-data` has two switches that remove one planted signal each (Part 04); they power the drills in Part 13.
 
+**File:** `src/aqp_python/cli.py` — component 2 of 2: main: one branch per command
+
+```python
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging()
@@ -709,11 +1092,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "build-sample-data":
-        from aqp_python.stages.stage_00_data.synthetic_market import write_sample_data
+        from aqp_python.connectors.synthetic.synthetic_market import write_sample_data
         if "raw" in args.output.parts:
             log.error("refusing to write synthetic data into a raw-data folder")
             return 2
         signal = {"quality_alpha": 0.0, "reversal_strength": 0.0} if args.no_signal else {}
+        if args.no_news_signal:
+            signal["news_alpha"] = 0.0
         for name, path in write_sample_data(args.output, seed=args.seed, **signal).items():
             print(f"wrote {name:<18} -> {path}")
         return 0
@@ -735,27 +1120,23 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
+**What it does.** One branch per command. Exit codes are part of the contract: `0` for PASS or DEGRADED, `1` for BLOCKED, `2` for bad input. A scheduler (Part 14) relies on them.
+
 ```powershell
 python -m aqp_python.cli validate-config
 ```
 
 ```text
-Configuration valid: configs\pipeline.yaml (sleeve asx_interday, hash 3f0a9c41d2be)
+Configuration valid: configs/pipeline.yaml (sleeve asx_interday, hash dbc1831aac6d)
 ```
 
-Break something on purpose to see it fail closed. Delete the line `max_gross_leverage: 1.0` from `risk_limits.yaml` and run it again:
-
-```text
-... ERROR   aqp | Configuration INVALID: 'risk_limits' is missing keys: ['max_gross_leverage']
-```
-
-`$LASTEXITCODE` is now `2`. Put the line back.
+Break something on purpose. Delete the line `max_gross_leverage: 1.0` from `risk_limits.yaml` and run it again: you should see `Configuration INVALID: 'risk_limits' is missing keys: ['max_gross_leverage']` and `$LASTEXITCODE` is `2`. Put the line back.
 
 ## 2.11 Tests
 
-Start `tests\conftest.py` with the shared configuration fixture. More fixtures are added to this file in Parts 04 and 07.
+Start `tests\conftest.py` with the shared configuration fixture. More fixtures are added to this file in Parts 04 and 08.
 
-**File:** `tests/conftest.py` — top of file, `config`
+**File:** `tests/conftest.py` — component 1 of 3: top of file and the config fixture
 
 ```python
 """Shared fixtures. Tests never touch the real data/, outputs/ or configs/ folders."""
@@ -778,15 +1159,12 @@ def config():
     return load_pipeline_config(CONFIG, "asx_interday")
 ```
 
-**File:** `tests/unit/test_contracts.py`
+**File:** `tests/unit/test_quantile_grid.py`
 
 ```python
 import pytest
 
-from aqp_python.contracts.order_schema import OrderRequest, Side
-from aqp_python.contracts.quantile_grid import QUANTILE_GRID, check_quantile_values
-from aqp_python.contracts.run_status import RunStatus, worst_status
-from aqp_python.gates.gate_result import GateOutcome, GateResult
+from aqp_python.contracts.quantile_grid import QUANTILE_COLUMNS, QUANTILE_GRID, check_quantile_values
 
 pytestmark = pytest.mark.batch01
 
@@ -794,6 +1172,7 @@ pytestmark = pytest.mark.batch01
 def test_quantile_grid_is_sorted_and_symmetric():
     assert list(QUANTILE_GRID) == sorted(QUANTILE_GRID)
     assert all(abs(a + b - 1) < 1e-12 for a, b in zip(QUANTILE_GRID, reversed(QUANTILE_GRID)))
+    assert QUANTILE_COLUMNS[5] == "q0.500"
 
 
 def test_crossing_quantiles_are_rejected():
@@ -803,15 +1182,38 @@ def test_crossing_quantiles_are_rejected():
         check_quantile_values(values)
 
 
+def test_non_finite_quantiles_are_rejected():
+    with pytest.raises(ValueError, match="finite"):
+        check_quantile_values([0.0] * 10 + [float("nan")])
+```
+
+**File:** `tests/unit/test_reason_codes.py`
+
+```python
+"""The shared vocabulary: run status, trade decisions, reason codes and order requests."""
+import pytest
+
+from aqp_python.contracts.order_schema import OrderRequest, Side
+from aqp_python.contracts.reason_codes import ReasonCode
+from aqp_python.contracts.run_status import RunStatus, worst_status
+
+pytestmark = pytest.mark.batch01
+
+
+def test_design_codes_are_kept_exactly():
+    design = {"DIST", "LIQ", "HIST", "DATA", "EXIT-DIST", "EXIT-DLST", "EXIT-SUSP", "EXIT-TKO", "EXIT-LIQ"}
+    assert design <= {str(code) for code in ReasonCode}
+
+
+def test_codes_are_unique():
+    values = [str(code) for code in ReasonCode]
+    assert len(values) == len(set(values))
+
+
 def test_worst_status_orders_blocked_over_degraded_over_pass():
     assert worst_status([RunStatus.PASS, RunStatus.DEGRADED]) == RunStatus.DEGRADED
     assert worst_status([RunStatus.BLOCKED, RunStatus.PASS]) == RunStatus.BLOCKED
     assert worst_status([]) == RunStatus.PASS
-
-
-def test_a_failed_gate_needs_a_reason_code():
-    with pytest.raises(ValueError, match="reason code"):
-        GateResult("G2", GateOutcome.BLOCK, "run")
 
 
 def test_order_validation():
@@ -820,7 +1222,34 @@ def test_order_validation():
     assert OrderRequest("o1", "SYN01", Side.BUY, 10, 2.5, "x").notional == 25.0
 ```
 
-**File:** `tests/unit/test_config.py`
+`test_design_codes_are_kept_exactly` protects the design's own codes from a well-meaning rename.
+
+`test_gates.py` grows with every gate: each part that builds a gate appends a component with its tests.
+
+**File:** `tests/unit/test_gates.py` — component 1 of 6: the common gate result
+
+```python
+"""Gate tests. Each Part appends the tests for the gate it builds (G1-G7)."""
+import pytest
+
+from aqp_python.contracts.reason_codes import ReasonCode as RC
+from aqp_python.gates.gate_result import GateOutcome, GateResult, any_block
+
+
+@pytest.mark.batch01
+def test_a_failed_gate_needs_a_reason_code():
+    with pytest.raises(ValueError, match="reason code"):
+        GateResult("G2", GateOutcome.BLOCK, "run")
+
+
+@pytest.mark.batch01
+def test_warn_passes_but_quarantine_and_block_do_not():
+    assert GateResult("G2", GateOutcome.WARN, "x", (RC.DATA_STALE,)).passed
+    assert not GateResult("G2", GateOutcome.QUARANTINE, "x", (RC.DATA_STALE,)).passed
+    assert any_block([GateResult("G2", GateOutcome.PASS), GateResult("G2", GateOutcome.BLOCK, "r", ("X",))])
+```
+
+**File:** `tests/unit/test_config_loader.py`
 
 ```python
 import copy
@@ -855,10 +1284,19 @@ def test_unknown_sleeve_is_rejected():
         load_pipeline_config(CONFIG, "mars_intraday")
 
 
-def test_live_mode_is_not_accepted(config):
+@pytest.mark.parametrize("path, value, message", [
+    (("pipeline", "mode"), "live", "mode"),
+    (("sleeve", "sizing", "kelly_fraction"), 0.9, "kelly_fraction"),
+    (("experiments", "experiments", "financial__xret__h5__asx_interday", "approved_arm"), "AUTO", "approved_arm"),
+    (("screening_request", "files"), ["prices.csv", "news.csv"], "news corpus"),
+])
+def test_dangerous_settings_are_refused(config, path, value, message):
     bad = copy.deepcopy(config)
-    bad["pipeline"]["mode"] = "live"
-    with pytest.raises(ConfigError, match="mode"):
+    section = bad
+    for key in path[:-1]:
+        section = section[key]
+    section[path[-1]] = value
+    with pytest.raises(ConfigError, match=message):
         validate_config(bad)
 
 
@@ -876,10 +1314,11 @@ def test_liquidity_limits_can_never_be_relaxed(config):
         validate_config(bad)
 
 
-def test_category_weights_must_sum_to_one(config):
+def test_a_feature_cannot_be_both_core_and_news(config):
     bad = copy.deepcopy(config)
-    bad["universe"]["category_weights"]["liquidity"] = 0.9
-    with pytest.raises(ConfigError, match="sum to 1"):
+    spec = bad["experiments"]["experiments"]["financial__xret__h5__asx_interday"]
+    spec["core_features"].append("news_sentiment_decay")
+    with pytest.raises(ConfigError, match="both core and news"):
         validate_config(bad)
 
 
@@ -887,22 +1326,21 @@ def test_config_hash_ignores_key_order():
     assert config_hash({"a": 1, "b": {"c": 2}}) == config_hash({"b": {"c": 2}, "a": 1})
 ```
 
-Each config test copies the configuration with `copy.deepcopy`, breaks one thing and expects a specific error. Testing the failure path is as important as testing success: these tests prove that a missing limit stops the run.
+`test_dangerous_settings_are_refused` is **parametrised**: one test function, four cases, each breaking one setting the design forbids. Testing the failure path is as important as testing success: these tests prove that a dangerous configuration stops the run.
 
 ```powershell
-python -m pytest tests\unit\test_contracts.py tests\unit\test_config.py -q
+python -m pytest tests\unit\test_quantile_grid.py tests\unit\test_reason_codes.py tests\unit\test_gates.py tests\unit\test_config_loader.py -q
 ```
 
-```text
-..............                                                           [100%]
-14 passed in 0.4s
-```
+You should see `21 passed`.
 
 ## Checkpoint
 
 - [ ] `python -m aqp_python.cli validate-config` prints `Configuration valid`.
 - [ ] Removing a limit from YAML produces `Configuration INVALID` and exit code 2.
-- [ ] 14 tests pass.
+- [ ] Moving a news feature into `core_features` is refused.
+
+**Check your understanding.** (1) Why is `SHADOW_CANDIDATE` a reason code even though nothing failed? (2) Which section of the configuration would you change to promote the news challenger, and why should the code never do that by itself?
 
 ```powershell
 git add .
